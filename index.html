@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Song Enhancer</title>
+<style>
+  :root { --bg:#f6f6f8; --card:#fff; --fg:#1b1b22; --muted:#666; --accent:#5b5bd6; --line:#e2e2ea; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121217; --card:#1c1c24; --fg:#ececf2; --muted:#9a9aa8; --accent:#8b8bff; --line:#2c2c38; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:860px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { margin:0 0 4px; font-size:26px; }
+  p.sub { margin:0 0 20px; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button, select { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px 20px; }
+  label { display:block; font-size:13px; color:var(--muted); }
+  label span { float:right; color:var(--fg); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  canvas { width:100%; height:120px; display:block; border-radius:8px; background:var(--bg); }
+  #status { color:var(--muted); font-size:13px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Song Enhancer</h1>
+  <p class="sub">Load a track, shape the sound in real time, then export an enhanced WAV. Everything runs locally in your browser.</p>
+
+  <div class="card">
+    <div class="row">
+      <input type="file" id="file" accept="audio/*">
+      <button id="play" disabled>Play</button>
+      <button id="bypass" disabled>A/B: Enhanced</button>
+      <button id="export" class="primary" disabled>Export WAV</button>
+    </div>
+    <p id="status">No file loaded.</p>
+    <canvas id="viz"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>Preset</h2>
+    <div class="row">
+      <select id="preset">
+        <option value="flat">Flat</option>
+        <option value="balanced" selected>Balanced Master</option>
+        <option value="bass">Bass Boost</option>
+        <option value="vocal">Vocal Clarity</option>
+        <option value="warm">Warm Vintage</option>
+        <option value="loud">Loud & Punchy</option>
+        <option value="hall">Concert Hall</option>
+      </select>
+      <button id="auto" disabled>Auto-normalize</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Controls</h2>
+    <div class="grid" id="controls"></div>
+  </div>
+</main>
+
+<script>
+const PARAMS = [
+  { id:'bass',   name:'Bass (80 Hz)',      min:-12, max:12, step:.5, unit:' dB' },
+  { id:'lowmid', name:'Low-mid (400 Hz)',  min:-12, max:12, step:.5, unit:' dB' },
+  { id:'mid',    name:'Presence (2.5 kHz)',min:-12, max:12, step:.5, unit:' dB' },
+  { id:'treble', name:'Air (10 kHz)',      min:-12, max:12, step:.5, unit:' dB' },
+  { id:'comp',   name:'Compression',       min:0,   max:100, step:1, unit:'%' },
+  { id:'width',  name:'Stereo width',      min:0,   max:200, step:1, unit:'%' },
+  { id:'reverb', name:'Reverb',            min:0,   max:100, step:1, unit:'%' },
+  { id:'gain',   name:'Output gain',       min:-12, max:12, step:.5, unit:' dB' },
+];
+const PRESETS = {
+  flat:     { bass:0, lowmid:0, mid:0, treble:0, comp:0,  width:100, reverb:0,  gain:0 },
+  balanced: { bass:2, lowmid:-1.5, mid:1.5, treble:2, comp:35, width:115, reverb:5, gain:1 },
+  bass:     { bass:7, lowmid:-1, mid:0, treble:1, comp:40, width:105, reverb:0, gain:-1 },
+  vocal:    { bass:-1, lowmid:-3, mid:4, treble:2.5, comp:45, width:100, reverb:8, gain:0.5 },
+  warm:     { bass:3, lowmid:2, mid:-1.5, treble:-3, comp:30, width:90, reverb:12, gain:0 },
+  loud:     { bass:3, lowmid:-1, mid:2, treble:3, comp:80, width:120, reverb:0, gain:3 },
+  hall:     { bass:1, lowmid:0, mid:0.5, treble:1.5, comp:25, width:140, reverb:45, gain:0 },
+};
+const state = { ...PRESETS.balanced };
+let ctx, buffer, source, chain, analyser, playing=false, bypassed=false, startedAt=0, offset=0;
+const $ = id => document.getElementById(id);
+
+// --- UI
+const controls = $('controls');
+for (const p of PARAMS) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `<label for="c_${p.id}">${p.name}<span id="v_${p.id}"></span></label>
+    <input type="range" id="c_${p.id}" min="${p.min}" max="${p.max}" step="${p.step}">`;
+  controls.appendChild(wrap);
+  wrap.querySelector('input').addEventListener('input', e => { state[p.id] = +e.target.value; $('preset').value=''; syncUI(); applyParams(chain); });
+}
+function syncUI() {
+  for (const p of PARAMS) { $('c_'+p.id).value = state[p.id]; $('v_'+p.id).textContent = state[p.id] + p.unit; }
+}
+syncUI();
+$('preset').onchange = e => { if (PRESETS[e.target.value]) { Object.assign(state, PRESETS[e.target.value]); syncUI(); applyParams(chain); } };
+
+// --- DSP graph
+function impulse(c, seconds=2.5, decay=3) {
+  const len = Math.floor(c.sampleRate*seconds), ir = c.createBuffer(2, len, c.sampleRate);
+  for (let ch=0; ch<2; ch++) { const d = ir.getChannelData(ch); for (let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay); }
+  return ir;
+}
+function buildChain(c) {
+  const n = {};
+  n.input = c.createGain();
+  n.bass = Object.assign(c.createBiquadFilter(), { type:'lowshelf' });  n.bass.frequency.value = 80;
+  n.lowmid = Object.assign(c.createBiquadFilter(), { type:'peaking' }); n.lowmid.frequency.value = 400; n.lowmid.Q.value = 1;
+  n.mid = Object.assign(c.createBiquadFilter(), { type:'peaking' });    n.mid.frequency.value = 2500; n.mid.Q.value = 0.9;
+  n.treble = Object.assign(c.createBiquadFilter(), { type:'highshelf' }); n.treble.frequency.value = 10000;
+  n.comp = c.createDynamicsCompressor(); n.comp.knee.value = 10; n.comp.attack.value = 0.01; n.comp.release.value = 0.2;
+  n.makeup = c.createGain();
+  // Mid/side stereo width
+  n.split = c.createChannelSplitter(2); n.merge = c.createChannelMerger(2);
+  const g = v => { const x=c.createGain(); x.gain.value=v; return x; };
+  n.midSum = g(0.5); n.sideL = g(0.5); n.sideR = g(-0.5); n.side = c.createGain();
+  n.outL = c.createGain(); n.outR = c.createGain(); n.invSide = g(-1);
+  n.split.connect(n.midSum,0); n.split.connect(n.midSum,1);
+  n.split.connect(n.sideL,0); n.split.connect(n.sideR,1);
+  n.sideL.connect(n.side); n.sideR.connect(n.side);
+  n.midSum.connect(n.outL); n.midSum.connect(n.outR);
+  n.side.connect(n.outL); n.side.connect(n.invSide); n.invSide.connect(n.outR);
+  n.outL.connect(n.merge,0,0); n.outR.connect(n.merge,0,1);
+  // Reverb send
+  n.dry = c.createGain(); n.wet = c.createGain();
+  n.conv = c.createConvolver(); n.conv.buffer = impulse(c);
+  n.limiter = c.createDynamicsCompressor(); n.limiter.threshold.value=-1; n.limiter.knee.value=0; n.limiter.ratio.value=20; n.limiter.attack.value=0.002; n.limiter.release.value=0.1;
+  n.out = c.createGain();
+  n.input.connect(n.bass).connect(n.lowmid).connect(n.mid).connect(n.treble).connect(n.comp).connect(n.makeup).connect(n.split);
+  n.merge.connect(n.dry).connect(n.out);
+  n.merge.connect(n.conv).connect(n.wet).connect(n.out);
+  n.out.connect(n.limiter);
+  n.output = n.limiter;
+  applyParams(n);
+  return n;
+}
+function applyParams(n) {
+  if (!n) return;
+  n.bass.gain.value = state.bass; n.lowmid.gain.value = state.lowmid;
+  n.mid.gain.value = state.mid; n.treble.gain.value = state.treble;
+  const k = state.comp/100;
+  n.comp.threshold.value = -k*30; n.comp.ratio.value = 1 + k*7;
+  n.makeup.gain.value = Math.pow(10, (k*30*0.35)/20);
+  n.side.gain.value = state.width/100;
+  n.wet.gain.value = state.reverb/100*0.6; n.dry.gain.value = 1 - state.reverb/100*0.25;
+  n.out.gain.value = Math.pow(10, state.gain/20);
+}
+
+// --- Load
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  stop(); $('status').textContent = 'Decoding…';
+  ctx = ctx || new AudioContext();
+  try {
+    buffer = await ctx.decodeAudioData(await f.arrayBuffer());
+  } catch { $('status').textContent = 'Could not decode that file.'; return; }
+  chain = buildChain(ctx);
+  analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+  chain.output.connect(analyser); analyser.connect(ctx.destination);
+  offset = 0;
+  $('status').textContent = `${f.name} — ${buffer.duration.toFixed(1)} s, ${buffer.sampleRate} Hz, ${buffer.numberOfChannels} ch`;
+  for (const b of ['play','bypass','export','auto']) $(b).disabled = false;
+};
+
+// --- Playback
+function play() {
+  source = ctx.createBufferSource(); source.buffer = buffer;
+  source.connect(bypassed ? analyser : chain.input);
+  source.onended = () => { if (playing && ctx.currentTime - startedAt + offset >= buffer.duration - 0.05) { playing=false; offset=0; $('play').textContent='Play'; } };
+  source.start(0, offset); startedAt = ctx.currentTime; playing = true; $('play').textContent='Pause';
+}
+function stop() {
+  if (source && playing) { source.onended=null; source.stop(); offset += ctx.currentTime - startedAt; }
+  playing = false; $('play').textContent = 'Play';
+}
+$('play').onclick = async () => { await ctx.resume(); playing ? stop() : play(); };
+$('bypass').onclick = () => {
+  bypassed = !bypassed; $('bypass').textContent = 'A/B: ' + (bypassed ? 'Original' : 'Enhanced');
+  if (playing) { stop(); play(); }
+};
+
+// --- Auto-normalize: set output gain so the enhanced peak approaches -1 dBFS
+$('auto').onclick = () => {
+  let peak = 0;
+  for (let ch=0; ch<buffer.numberOfChannels; ch++) { const d = buffer.getChannelData(ch); for (let i=0;i<d.length;i+=4) peak = Math.max(peak, Math.abs(d[i])); }
+  const db = -1 - 20*Math.log10(peak || 1);
+  state.gain = Math.max(-12, Math.min(12, Math.round(db*2)/2)); syncUI(); applyParams(chain);
+};
+
+// --- Export
+$('export').onclick = async () => {
+  $('export').disabled = true; $('status').textContent = 'Rendering…';
+  const off = new OfflineAudioContext(2, buffer.length + buffer.sampleRate*2, buffer.sampleRate);
+  const n = buildChain(off), s = off.createBufferSource();
+  s.buffer = buffer; s.connect(n.input); n.output.connect(off.destination); s.start();
+  const out = await off.startRendering();
+  const blob = toWav(out);
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'enhanced.wav' });
+  a.click(); $('status').textContent = 'Exported enhanced.wav'; $('export').disabled = false;
+};
+function toWav(b) {
+  const ch = b.numberOfChannels, len = b.length, bytes = 44 + len*ch*2, v = new DataView(new ArrayBuffer(bytes));
+  const w = (o,s) => [...s].forEach((c,i)=>v.setUint8(o+i,c.charCodeAt(0)));
+  w(0,'RIFF'); v.setUint32(4,bytes-8,true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true);
+  v.setUint16(20,1,true); v.setUint16(22,ch,true); v.setUint32(24,b.sampleRate,true);
+  v.setUint32(28,b.sampleRate*ch*2,true); v.setUint16(32,ch*2,true); v.setUint16(34,16,true);
+  w(36,'data'); v.setUint32(40,len*ch*2,true);
+  const data = [...Array(ch)].map((_,i)=>b.getChannelData(i));
+  let o = 44;
+  for (let i=0;i<len;i++) for (let c=0;c<ch;c++) { const x=Math.max(-1,Math.min(1,data[c][i])); v.setInt16(o, x<0?x*0x8000:x*0x7fff, true); o+=2; }
+  return new Blob([v], { type:'audio/wav' });
+}
+
+// --- Visualizer
+const cv = $('viz'), g2 = cv.getContext('2d');
+(function draw() {
+  requestAnimationFrame(draw);
+  const W = cv.width = cv.clientWidth*devicePixelRatio, H = cv.height = cv.clientHeight*devicePixelRatio;
+  if (!analyser) return;
+  const d = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(d);
+  const bars = 96, bw = W/bars;
+  g2.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  for (let i=0;i<bars;i++) {
+    const idx = Math.floor(Math.pow(i/bars, 2) * d.length * 0.7);
+    const h = d[idx]/255*H; g2.fillRect(i*bw+1, H-h, bw-2, h);
+  }
+})();
+</script>
+</body>
+</html>
