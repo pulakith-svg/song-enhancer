@@ -46,6 +46,7 @@
     <button id="power" title="Turn enhancement on/off">⏻</button>
   </header>
   <div class="panel"><div class="title">Sound mode</div><div class="chips" id="modes"></div></div>
+  <div class="panel"><div class="title">Listening on</div><div class="chips" id="devices" style="grid-template-columns:repeat(4,1fr)"></div></div>
   <div class="panel">
     <div class="title"><span>Signal processor</span><span id="state">—</span></div>
     <div class="chips" id="styles"></div>
@@ -54,13 +55,14 @@
       <span>IN</span><div class="meter"><i id="mIn"></i></div><b id="tIn">—</b>
       <span>OUT</span><div class="meter"><i id="mOut"></i></div><b id="tOut">—</b>
       <span>AGC</span><div class="meter"><i id="mAgc"></i></div><b id="tAgc">—</b>
+      <span>LUFS</span><div class="meter"><i id="mLufs"></i></div><b id="tLufs">—</b>
     </div>
     <div class="grrow">
       <div><div class="grbar"><i id="g0"></i></div>LOW</div>
       <div><div class="grbar"><i id="g1"></i></div>L-MID</div>
       <div><div class="grbar"><i id="g2"></i></div>H-MID</div>
       <div><div class="grbar"><i id="g3"></i></div>HIGH</div>
-      <div><div class="grbar"><i id="g4"></i></div>LIMIT</div>
+      <div><div class="grbar"><i id="g4"></i></div><span id="limName">LIMIT</span></div>
     </div>
   </div>
   <div class="panel">

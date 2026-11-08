@@ -16,7 +16,13 @@
     club:      { amt:1.35, atk:[0.01,0.008,0.004,0.002], rel:[0.2,0.15,0.1,0.08] },
   };
   const XOVER = [150, 800, 5000];
-  const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const DEVICES = { // output tuning: tilt EQ + crossfeed (headphones)
+    headphones: { lo:0,  lm:0,    hm:0,   hi:0,  hp:20,  feed:0.22 },
+    speakers:   { lo:1,  lm:0,    hm:0,   hi:0.5, hp:20, feed:0 },
+    laptop:     { lo:-4, lm:1.5,  hm:2,   hi:1,  hp:110, feed:0 },
+    car:        { lo:-2, lm:-1.5, hm:1.5, hi:2,  hp:35,  feed:0 },
+  };
+  const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -39,16 +45,20 @@
     x.agc = g(1);
     // 4-band multiband compressor: Linkwitz-Riley style crossovers (two cascaded 2nd-order filters)
     x.comp = g(1); // summing bus feeding the crossover
-    const lr = (type, fr) => { const a = f(type, fr, 0.707), b = f(type, fr, 0.707); a.connect(b); return [a, b]; };
+    // Phase-coherent LR4 crossover tree: split at 800 Hz, then 150 Hz and 5 kHz,
+    // with allpass compensation so the four bands sum back flat.
+    const lr4 = (type, fr) => { const a = f(type, fr, -3.0103), b = f(type, fr, -3.0103); // Butterworth (Web Audio LP/HP Q is in dB)
+      a.connect(b); return [a, b]; };
+    const ap = fr => f('allpass', fr, 0.5);
     x.mbOut = g(1); x.bands = [];
-    for (let i = 0; i < 4; i++) {
-      const chain = [];
-      if (i > 0) chain.push(...lr('highpass', XOVER[i - 1]));
-      if (i < 3) chain.push(...lr('lowpass', XOVER[i]));
-      for (let j = 1; j + 1 < chain.length; j += 2) chain[j].connect(chain[j + 1]); // link LR pairs in series
+    const [lo1, lo2] = lr4('lowpass', XOVER[1]), [hi1, hi2] = lr4('highpass', XOVER[1]);
+    x.comp.connect(lo1); x.comp.connect(hi1);
+    const loC = ap(XOVER[2]), hiC = ap(XOVER[0]); lo2.connect(loC); hi2.connect(hiC);
+    const outs = [lr4('lowpass', XOVER[0]), lr4('highpass', XOVER[0]), lr4('lowpass', XOVER[2]), lr4('highpass', XOVER[2])];
+    loC.connect(outs[0][0]); loC.connect(outs[1][0]); hiC.connect(outs[2][0]); hiC.connect(outs[3][0]);
+    for (const [, end] of outs) {
       const cmp = c.createDynamicsCompressor(); cmp.knee.value = 6;
-      const out = g(1);
-      x.comp.connect(chain[0]); chain[chain.length - 1].connect(cmp).connect(out).connect(x.mbOut);
+      const out = g(1); end.connect(cmp).connect(out).connect(x.mbOut);
       x.bands.push({ cmp, out });
     }
     x.makeup = g(1);
@@ -67,19 +77,40 @@
     x.m.connect(x.oL); x.m.connect(x.oR);
     x.side.connect(x.oL); x.side.connect(x.inv); x.inv.connect(x.oR);
     x.oL.connect(x.merge, 0, 0); x.oR.connect(x.merge, 0, 1);
+    // Device stage: tilt EQ + headphone crossfeed (low-passed, delayed opposite channel)
+    x.dHp = f('highpass', 20, 0.7); x.dLo = f('lowshelf', 120); x.dLm = f('peaking', 500, 0.8); x.dHm = f('peaking', 3000, 0.8); x.dHi = f('highshelf', 8000);
+    x.xs = c.createChannelSplitter(2); x.xm = c.createChannelMerger(2);
+    x.fL = f('lowpass', 700); x.fR = f('lowpass', 700); x.fdL = c.createDelay(0.01); x.fdR = c.createDelay(0.01);
+    x.fdL.delayTime.value = x.fdR.delayTime.value = 0.0003; x.fgL = g(0); x.fgR = g(0);
+    x.xs.connect(x.xm, 0, 0); x.xs.connect(x.xm, 1, 1);
+    x.xs.connect(x.fL, 0); x.fL.connect(x.fdL).connect(x.fgL).connect(x.xm, 0, 1);
+    x.xs.connect(x.fR, 1); x.fR.connect(x.fdR).connect(x.fgR).connect(x.xm, 0, 0);
     x.boost = g(1);
     x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.08;
     x.analyser = c.createAnalyser(); x.analyser.fftSize = 4096; x.analyser.smoothingTimeConstant = 0.85;
     x.input.connect(x.analyser);
+    // ITU-R BS.1770 K-weighting for loudness (LUFS-style) measurement
+    x.kShelf = f('highshelf', 1500); x.kShelf.gain.value = 4; x.kHp = f('highpass', 38, 0.5);
+    x.kAn = c.createAnalyser(); x.kAn.fftSize = 16384;
+    x.input.connect(x.kShelf).connect(x.kHp).connect(x.kAn);
     x.input.connect(x.bypass).connect(c.destination);
     x.input.connect(x.wetIn).connect(x.agc).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble)
       .connect(x.geq[0]); x.geq[x.geq.length - 1].connect(x.comp);
     x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
     x.mbOut.connect(x.makeup).connect(x.split);
-    x.merge.connect(x.boost).connect(x.clipIn).connect(x.clip).connect(x.clipOut).connect(x.lim);
+    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.xs); x.xm.connect(x.boost).connect(x.clipIn).connect(x.clip).connect(x.clipOut).connect(x.lim);
     x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
-    x.lim.connect(c.destination); x.lim.connect(x.outAn);
+    x.limOut = g(1); x.limOut.connect(c.destination); x.limOut.connect(x.outAn);
+    x.lim.connect(x.limOut);
+    x.tp = null;
+    try {
+      c.audioWorklet.addModule(chrome.runtime.getURL('limiter.js')).then(() => {
+        const tp = new AudioWorkletNode(c, 'tp-limiter', { outputChannelCount: [2] });
+        tp.port.onmessage = e => { x.tpRed = e.data; };
+        x.clipOut.disconnect(); x.clipOut.connect(tp).connect(x.limOut); x.tp = tp;
+      }).catch(e => console.info('Song Enhancer: using standard limiter', e));
+    } catch (e) { /* worklet unavailable: native limiter stays */ }
     return x;
   }
 
@@ -101,6 +132,9 @@
     ramp(n.exGain.gain, s.exciter / 100 * 0.45 * k);
     ramp(n.beGain.gain, s.bassEnh / 100 * 0.6 * k);
     ramp(n.boost.gain, Math.pow(10, cfg.uBoost / 20));
+    const d = DEVICES[cfg.device] || DEVICES.headphones;
+    ramp(n.dHp.frequency, d.hp); ramp(n.dLo.gain, d.lo); ramp(n.dLm.gain, d.lm); ramp(n.dHm.gain, d.hm); ramp(n.dHi.gain, d.hi);
+    ramp(n.fgL.gain, d.feed); ramp(n.fgR.gain, d.feed);
   }
 
   // Adaptive auto mode: measure the live spectrum and steer EQ toward a rich hi-fi target.
@@ -127,20 +161,21 @@
 
   // AGC: ride the input toward a consistent loudness
   let agcDb = 0, inDb = -100;
-  const tbuf = new Float32Array(2048);
-  function rmsDb(an) { an.getFloatTimeDomainData(tbuf); let s = 0; for (const v of tbuf) s += v * v; return 10 * Math.log10(s / tbuf.length + 1e-12); }
+  const obuf = new Float32Array(2048), kbuf = new Float32Array(16384);
+  function rmsDb(an) { const tbuf = an.fftSize === 16384 ? kbuf : obuf; an.getFloatTimeDomainData(tbuf); let s = 0; for (const v of tbuf) s += v * v; return 10 * Math.log10(s / tbuf.length + 1e-12); }
   function agcTick() {
     if (!n) return;
-    inDb = rmsDb(n.analyser);
+    inDb = rmsDb(n.kAn) - 0.691; // approx. LUFS (momentary)
     if (cfg.enabled && cfg.agc && inDb > -50) {
-      const want = Math.max(-9, Math.min(9, -20 - inDb));
+      const want = Math.max(-9, Math.min(9, -16 - inDb)); // target -16 LUFS in
       agcDb += Math.max(-0.4, Math.min(0.4, want - agcDb)); // slow ride
     } else if (!cfg.agc) agcDb = 0;
     n.agc.gain.setTargetAtTime(Math.pow(10, agcDb / 20), ctx.currentTime, 0.5);
   }
+  setInterval(() => n && n.tp && n.tp.port.postMessage(0), 100);
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     if (msg !== 'meters' || !n) return;
-    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.lim.reduction });
+    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb });
   });
 
   function apply() {

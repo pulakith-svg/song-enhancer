@@ -1,5 +1,6 @@
-const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
 const MODES = [['auto','Auto'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
+const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
 const HZ = ['31','62','125','250','500','1k','2k','4k','8k','16k'];
 const EQP = {
@@ -15,6 +16,7 @@ const $ = id => document.getElementById(id), save = o => chrome.storage.sync.set
 let cfg = { ...DEF };
 
 for (const [id, name] of MODES) $('modes').insertAdjacentHTML('beforeend', `<button class="chip" data-mode="${id}">${name}</button>`);
+for (const [id, name] of DEV) $('devices').insertAdjacentHTML('beforeend', `<button class="chip" data-device="${id}">${name}</button>`);
 for (const [id, name] of STY) $('styles').insertAdjacentHTML('beforeend', `<button class="chip" data-style="${id}">${name}</button>`);
 for (const name in EQP) $('eqpresets').insertAdjacentHTML('beforeend', `<button class="chip" data-eq="${name}">${name}</button>`);
 HZ.forEach((hz, i) => $('eq').insertAdjacentHTML('beforeend',
@@ -29,6 +31,7 @@ function render() {
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === cfg.preset));
   document.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === cfg.style));
   $('agc').checked = cfg.agc;
+  document.querySelectorAll('[data-device]').forEach(b => b.classList.toggle('active', b.dataset.device === cfg.device));
   const en = eqName(); $('eqname').textContent = en;
   document.querySelectorAll('[data-eq]').forEach(b => b.classList.toggle('active', b.dataset.eq === en));
   cfg.eq.forEach((v, i) => { $('b' + i).value = v; $('db' + i).textContent = v ? fmt(v, '') : '0'; });
@@ -38,11 +41,12 @@ function render() {
 $('power').onclick = () => { cfg.enabled = !cfg.enabled; save({ enabled: cfg.enabled }); render(); };
 $('modes').onclick = e => { const m = e.target.dataset.mode; if (m) { cfg.preset = m; save({ preset: m }); render(); } };
 $('styles').onclick = e => { const s = e.target.dataset.style; if (s) { cfg.style = s; save({ style: s }); render(); } };
+$('devices').onclick = e => { const d = e.target.dataset.device; if (d) { cfg.device = d; save({ device: d }); render(); } };
 $('agc').onchange = e => { cfg.agc = e.target.checked; save({ agc: cfg.agc }); };
 $('eqpresets').onclick = e => { const p = e.target.dataset.eq; if (p) { cfg.eq = [...EQP[p]]; save({ eq: cfg.eq }); render(); } };
 HZ.forEach((_, i) => $('b' + i).oninput = e => { cfg.eq[i] = +e.target.value; save({ eq: cfg.eq }); render(); });
 for (const [id] of KNOBS) $(id).oninput = e => { cfg[id] = +e.target.value; save({ [id]: cfg[id] }); render(); };
-$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc }; save(cfg); render(); };
+$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device }; save(cfg); render(); };
 
 chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); });
 
@@ -54,6 +58,8 @@ function meters(m) {
   $('mIn').style.width = pct(m.in) + '%'; $('tIn').textContent = m.in > -90 ? m.in.toFixed(1) + ' dB' : '—';
   $('mOut').style.width = pct(m.out) + '%'; $('tOut').textContent = m.out > -90 ? m.out.toFixed(1) + ' dB' : '—';
   $('mAgc').style.width = (50 + m.agc / 9 * 50) + '%'; $('tAgc').textContent = (m.agc > 0 ? '+' : '') + m.agc.toFixed(1) + ' dB';
+  $('mLufs').style.width = pct(m.lufs) + '%'; $('tLufs').textContent = m.lufs > -90 ? m.lufs.toFixed(1) : '—';
+  $('limName').textContent = m.tp ? 'TRUE-PK' : 'LIMIT';
   [...m.gr, m.lim].forEach((v, i) => $('g' + i).style.height = Math.min(100, -v / 12 * 100) + '%');
 }
 function poll() {

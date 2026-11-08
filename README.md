@@ -22,7 +22,7 @@ Click the extension icon to turn enhancement on/off, choose a mode (Auto Enhance
 
 **Signal chain (like a broadcast/studio processor)**
 
-Input AGC (auto level) → subsonic filter → adaptive tone EQ → 10-band graphic EQ → bass enhancer + harmonic exciter → 4-band multiband compressor (crossovers at 150 Hz, 800 Hz, 5 kHz) → stereo width + 3D surround → volume boost → soft clipper → brickwall limiter.
+LUFS loudness AGC (ITU-R BS.1770 K-weighted, targets −16 LUFS) → subsonic filter → adaptive tone EQ → 10-band graphic EQ → bass enhancer + harmonic exciter → phase-coherent 4-band multiband compressor (Linkwitz-Riley LR4 crossovers at 150 Hz, 800 Hz, 5 kHz with allpass compensation; sums flat within 0.2 dB) → stereo width + 3D surround → output device profile (Headphones with crossfeed, Speakers, Laptop, Car) → volume boost → soft clipper → 5 ms lookahead true-peak limiter (−1 dBTP ceiling).
 
 Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), **Club** (maximum punch). The popup shows live IN/OUT/AGC meters and gain reduction for each band and the limiter.
 
