@@ -6,7 +6,9 @@ class TPLimiter extends AudioWorkletProcessor {
     this.la = Math.round(sampleRate * 0.005); // 5 ms lookahead
     this.buf = [new Float32Array(this.la + 1), new Float32Array(this.la + 1)];
     this.peak = new Float32Array(this.la + 1); // ring of sample peaks
-    this.w = 0; this.gain = 1; this.prev = [0, 0]; this.red = 0;
+    this.w = 0; this.gain = 1; this.prev = [0, 0]; this.red = 0; this.n = 0;
+    // Monotonic deque for O(1) sliding-window max over the lookahead
+    this.dqI = new Int32Array(this.la + 2); this.dqV = new Float32Array(this.la + 2); this.h = 0; this.tl = 0;
     this.port.onmessage = () => this.port.postMessage(this.red);
   }
   process(inputs, outputs, p) {
@@ -24,8 +26,12 @@ class TPLimiter extends AudioWorkletProcessor {
         this.buf[c][this.w] = x;
       }
       this.peak[this.w] = pk;
-      // Max peak over the lookahead window
-      let m = 0; for (let j = 0; j < N; j++) if (this.peak[j] > m) m = this.peak[j];
+      // Max peak over the lookahead window (monotonic deque, amortized O(1))
+      const cap = this.dqI.length, idx = this.n++;
+      while (this.tl !== this.h && this.dqV[(this.tl - 1 + cap) % cap] <= pk) this.tl = (this.tl - 1 + cap) % cap;
+      this.dqI[this.tl] = idx; this.dqV[this.tl] = pk; this.tl = (this.tl + 1) % cap;
+      while (this.dqI[this.h] <= idx - N) this.h = (this.h + 1) % cap;
+      const m = this.dqV[this.h];
       const target = m > ceil ? ceil / m : 1;
       this.gain = target < this.gain ? atk * this.gain + (1 - atk) * target : rel * this.gain + (1 - rel) * target;
       const r = (this.w + 1) % N; // oldest sample = delayed output
