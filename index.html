@@ -29,7 +29,7 @@
 <body>
 <main>
   <h1>Song Enhancer</h1>
-  <p class="sub">Load a track, shape the sound in real time, then export an enhanced WAV. Everything runs locally in your browser.</p>
+  <p class="sub">Load a track and it is analyzed and enhanced automatically, like a hi-fi processor. Fine-tune if you want, then export. Everything runs locally in your browser.</p>
 
   <div class="card">
     <div class="row">
@@ -46,8 +46,9 @@
     <h2>Preset</h2>
     <div class="row">
       <select id="preset">
+        <option value="auto" selected>Auto Enhance (Hi-Fi)</option>
         <option value="flat">Flat</option>
-        <option value="balanced" selected>Balanced Master</option>
+        <option value="balanced">Balanced Master</option>
         <option value="bass">Bass Boost</option>
         <option value="vocal">Vocal Clarity</option>
         <option value="warm">Warm Vintage</option>
@@ -56,6 +57,7 @@
       </select>
       <button id="auto" disabled>Auto-normalize</button>
     </div>
+    <p id="analysis" style="margin:10px 0 0;color:var(--muted);font-size:13px"></p>
   </div>
 
   <div class="card">
@@ -70,19 +72,20 @@ const PARAMS = [
   { id:'lowmid', name:'Low-mid (400 Hz)',  min:-12, max:12, step:.5, unit:' dB' },
   { id:'mid',    name:'Presence (2.5 kHz)',min:-12, max:12, step:.5, unit:' dB' },
   { id:'treble', name:'Air (10 kHz)',      min:-12, max:12, step:.5, unit:' dB' },
+  { id:'exciter', name:'Detail (exciter)', min:0, max:100, step:1, unit:'%' },
   { id:'comp',   name:'Compression',       min:0,   max:100, step:1, unit:'%' },
   { id:'width',  name:'Stereo width',      min:0,   max:200, step:1, unit:'%' },
   { id:'reverb', name:'Reverb',            min:0,   max:100, step:1, unit:'%' },
   { id:'gain',   name:'Output gain',       min:-12, max:12, step:.5, unit:' dB' },
 ];
 const PRESETS = {
-  flat:     { bass:0, lowmid:0, mid:0, treble:0, comp:0,  width:100, reverb:0,  gain:0 },
-  balanced: { bass:2, lowmid:-1.5, mid:1.5, treble:2, comp:35, width:115, reverb:5, gain:1 },
-  bass:     { bass:7, lowmid:-1, mid:0, treble:1, comp:40, width:105, reverb:0, gain:-1 },
-  vocal:    { bass:-1, lowmid:-3, mid:4, treble:2.5, comp:45, width:100, reverb:8, gain:0.5 },
-  warm:     { bass:3, lowmid:2, mid:-1.5, treble:-3, comp:30, width:90, reverb:12, gain:0 },
-  loud:     { bass:3, lowmid:-1, mid:2, treble:3, comp:80, width:120, reverb:0, gain:3 },
-  hall:     { bass:1, lowmid:0, mid:0.5, treble:1.5, comp:25, width:140, reverb:45, gain:0 },
+  flat:     { bass:0, lowmid:0, mid:0, treble:0, comp:0,  width:100, reverb:0,  gain:0, exciter:0 },
+  balanced: { bass:2, lowmid:-1.5, mid:1.5, treble:2, comp:35, width:115, reverb:5, gain:1, exciter:15 },
+  bass:     { bass:7, lowmid:-1, mid:0, treble:1, comp:40, width:105, reverb:0, gain:-1, exciter:5 },
+  vocal:    { bass:-1, lowmid:-3, mid:4, treble:2.5, comp:45, width:100, reverb:8, gain:0.5, exciter:25 },
+  warm:     { bass:3, lowmid:2, mid:-1.5, treble:-3, comp:30, width:90, reverb:12, gain:0, exciter:0 },
+  loud:     { bass:3, lowmid:-1, mid:2, treble:3, comp:80, width:120, reverb:0, gain:3, exciter:20 },
+  hall:     { bass:1, lowmid:0, mid:0.5, treble:1.5, comp:25, width:140, reverb:45, gain:0, exciter:10 },
 };
 const state = { ...PRESETS.balanced };
 let ctx, buffer, source, chain, analyser, playing=false, bypassed=false, startedAt=0, offset=0;
@@ -95,13 +98,14 @@ for (const p of PARAMS) {
   wrap.innerHTML = `<label for="c_${p.id}">${p.name}<span id="v_${p.id}"></span></label>
     <input type="range" id="c_${p.id}" min="${p.min}" max="${p.max}" step="${p.step}">`;
   controls.appendChild(wrap);
-  wrap.querySelector('input').addEventListener('input', e => { state[p.id] = +e.target.value; $('preset').value=''; syncUI(); applyParams(chain); });
+  wrap.querySelector('input').addEventListener('input', e => { state[p.id] = +e.target.value; $('preset').value=''; $('analysis').textContent=''; syncUI(); applyParams(chain); });
 }
 function syncUI() {
   for (const p of PARAMS) { $('c_'+p.id).value = state[p.id]; $('v_'+p.id).textContent = state[p.id] + p.unit; }
 }
 syncUI();
-$('preset').onchange = e => { if (PRESETS[e.target.value]) { Object.assign(state, PRESETS[e.target.value]); syncUI(); applyParams(chain); } };
+$('preset').onchange = e => { if (e.target.value==='auto' && buffer) { autoEnhance(); return; }
+  if (PRESETS[e.target.value]) { Object.assign(state, PRESETS[e.target.value]); syncUI(); applyParams(chain); } };
 
 // --- DSP graph
 function impulse(c, seconds=2.5, decay=3) {
@@ -112,6 +116,7 @@ function impulse(c, seconds=2.5, decay=3) {
 function buildChain(c) {
   const n = {};
   n.input = c.createGain();
+  n.hp = Object.assign(c.createBiquadFilter(), { type:'highpass' }); n.hp.frequency.value = 25; n.hp.Q.value = 0.7;
   n.bass = Object.assign(c.createBiquadFilter(), { type:'lowshelf' });  n.bass.frequency.value = 80;
   n.lowmid = Object.assign(c.createBiquadFilter(), { type:'peaking' }); n.lowmid.frequency.value = 400; n.lowmid.Q.value = 1;
   n.mid = Object.assign(c.createBiquadFilter(), { type:'peaking' });    n.mid.frequency.value = 2500; n.mid.Q.value = 0.9;
@@ -134,7 +139,13 @@ function buildChain(c) {
   n.conv = c.createConvolver(); n.conv.buffer = impulse(c);
   n.limiter = c.createDynamicsCompressor(); n.limiter.threshold.value=-1; n.limiter.knee.value=0; n.limiter.ratio.value=20; n.limiter.attack.value=0.002; n.limiter.release.value=0.1;
   n.out = c.createGain();
-  n.input.connect(n.bass).connect(n.lowmid).connect(n.mid).connect(n.treble).connect(n.comp).connect(n.makeup).connect(n.split);
+  // Harmonic exciter: highpassed signal -> soft saturation -> blended back in
+  n.exHp = Object.assign(c.createBiquadFilter(), { type:'highpass' }); n.exHp.frequency.value = 3500;
+  n.exShape = c.createWaveShaper(); n.exShape.oversample = '4x';
+  const curve = new Float32Array(1024); for (let i=0;i<1024;i++){ const x=i/511.5-1; curve[i]=Math.tanh(3*x)/Math.tanh(3); } n.exShape.curve = curve;
+  n.exGain = c.createGain();
+  n.treble.connect(n.exHp).connect(n.exShape).connect(n.exGain).connect(n.comp);
+  n.input.connect(n.hp).connect(n.bass).connect(n.lowmid).connect(n.mid).connect(n.treble).connect(n.comp).connect(n.makeup).connect(n.split);
   n.merge.connect(n.dry).connect(n.out);
   n.merge.connect(n.conv).connect(n.wet).connect(n.out);
   n.out.connect(n.limiter);
@@ -152,6 +163,7 @@ function applyParams(n) {
   n.side.gain.value = state.width/100;
   n.wet.gain.value = state.reverb/100*0.6; n.dry.gain.value = 1 - state.reverb/100*0.25;
   n.out.gain.value = Math.pow(10, state.gain/20);
+  n.exGain.gain.value = state.exciter/100*0.35;
 }
 
 // --- Load
@@ -168,7 +180,49 @@ $('file').onchange = async e => {
   offset = 0;
   $('status').textContent = `${f.name} — ${buffer.duration.toFixed(1)} s, ${buffer.sampleRate} Hz, ${buffer.numberOfChannels} ch`;
   for (const b of ['play','bypass','export','auto']) $(b).disabled = false;
+  if ($('preset').value === 'auto') await autoEnhance();
 };
+
+// --- Automatic analysis: measure the track and pick settings for it
+async function bandRms(mono, sr, setup) {
+  const c = new OfflineAudioContext(1, mono.length, sr);
+  const b = c.createBuffer(1, mono.length, sr); b.copyToChannel(mono, 0);
+  const s = c.createBufferSource(); s.buffer = b;
+  let node = s; for (const f of setup) { const q = Object.assign(c.createBiquadFilter(), f.t); q.frequency.value = f.f; if (f.q) q.Q.value = f.q; node.connect(q); node = q; }
+  node.connect(c.destination); s.start();
+  const d = (await c.startRendering()).getChannelData(0);
+  let sum = 0; for (let i=0;i<d.length;i+=2) sum += d[i]*d[i];
+  return 10*Math.log10(sum/(d.length/2) + 1e-12);
+}
+async function autoEnhance() {
+  $('analysis').textContent = 'Analyzing track…';
+  const sr = buffer.sampleRate, max = Math.min(buffer.length, sr*60), start = Math.max(0, Math.floor((buffer.length-max)/2));
+  const L = buffer.getChannelData(0).subarray(start, start+max), R = (buffer.numberOfChannels>1 ? buffer.getChannelData(1) : buffer.getChannelData(0)).subarray(start, start+max);
+  const mono = new Float32Array(max); let peak=0, ms=0, ss=0;
+  for (let i=0;i<max;i++){ const m=(L[i]+R[i])/2, s=(L[i]-R[i])/2; mono[i]=m; ms+=m*m; ss+=s*s; peak=Math.max(peak,Math.abs(L[i]),Math.abs(R[i])); }
+  const rmsDb = 10*Math.log10(ms/max+1e-12), crest = 20*Math.log10(peak+1e-12) - rmsDb;
+  const [bass, lowmid, pres, air] = await Promise.all([
+    bandRms(mono, sr, [{t:{type:'lowpass'}, f:150}]),
+    bandRms(mono, sr, [{t:{type:'bandpass'}, f:400, q:1}]),
+    bandRms(mono, sr, [{t:{type:'bandpass'}, f:2500, q:0.9}]),
+    bandRms(mono, sr, [{t:{type:'highpass'}, f:8000}]),
+  ]);
+  // Target tonal balance (dB relative to overall RMS), typical of well-mastered music
+  const target = { bass:-4, lowmid:-9, mid:-14, treble:-21 };
+  const fix = (v, tgt) => Math.max(-5, Math.min(5, Math.round((tgt - (v - rmsDb))*0.6*2)/2));
+  const side = Math.sqrt(ss/(ms+1e-12));
+  const comp = Math.round(Math.max(10, Math.min(60, (crest-8)*5)));
+  const s = {
+    bass: fix(bass, target.bass), lowmid: fix(lowmid, target.lowmid), mid: fix(pres, target.mid), treble: fix(air, target.treble),
+    comp, exciter: air - rmsDb < -26 ? 30 : 15,
+    width: side < 0.15 ? 125 : side > 0.5 ? 95 : 112,
+    reverb: 0,
+  };
+  const makeup = comp/100*30*0.35;
+  s.gain = Math.max(-6, Math.min(9, Math.round((-13 - rmsDb - makeup)*2)/2));
+  Object.assign(state, s); syncUI(); applyParams(chain);
+  $('analysis').textContent = `Auto Enhance: loudness ${rmsDb.toFixed(1)} dBFS, dynamic range ${crest.toFixed(1)} dB, stereo ${(side*100).toFixed(0)}%. Tone, dynamics, width and level were set for this track.`;
+}
 
 // --- Playback
 function play() {
