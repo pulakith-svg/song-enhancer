@@ -24,7 +24,7 @@
     car:        { lo:-2, lm:-1.5, hm:1.5, hi:2,  hp:35,  feed:0 },
   };
   const SETTINGS_VERSION = 3;
-  const DEF = { v:SETTINGS_VERSION, enabled:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -87,6 +87,9 @@
     x.xs.connect(x.xm, 0, 0); x.xs.connect(x.xm, 1, 1);
     x.xs.connect(x.fL, 0); x.fL.connect(x.fdL).connect(x.fgL).connect(x.xm, 0, 1);
     x.xs.connect(x.fR, 1); x.fR.connect(x.fdR).connect(x.fgR).connect(x.xm, 0, 0);
+    // Headphone correction (AutoEQ parametric profile): preamp + up to 10 filters
+    x.hcPre = g(1); x.hc = Array.from({ length: 10 }, () => f('peaking', 1000, 1));
+    x.hcPre.connect(x.hc[0]); for (let i = 0; i < 9; i++) x.hc[i].connect(x.hc[i + 1]);
     x.boost = g(1);
     x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.25;
     x.analyser = c.createAnalyser(); x.analyser.fftSize = 4096; x.analyser.smoothingTimeConstant = 0.85;
@@ -101,7 +104,7 @@
     x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exPost).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
     x.mbOut.connect(x.makeup).connect(x.split);
-    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
+    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.hcPre); x.hc[9].connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
     x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
     x.limOut = g(1); x.limOut.connect(c.destination); x.limOut.connect(x.outAn);
     x.lim.connect(x.clipIn); x.clipIn.connect(x.clip).connect(x.clipOut).connect(x.limOut);
@@ -138,6 +141,22 @@
     const d = DEVICES[cfg.device] || DEVICES.headphones;
     ramp(n.dHp.frequency, d.hp); ramp(n.dLo.gain, d.lo); ramp(n.dLm.gain, d.lm); ramp(n.dHm.gain, d.hm); ramp(n.dHi.gain, d.hi);
     ramp(n.fgL.gain, d.feed); ramp(n.fgR.gain, d.feed);
+    applyHp();
+  }
+
+  // Load a headphone correction profile into the filter bank
+  let hpKey = '';
+  function applyHp() {
+    const h = cfg.hpEq, key = JSON.stringify(h || null);
+    if (key === hpKey) return; hpKey = key;
+    const t = ctx.currentTime, fl = (h && h.filters) || [];
+    n.hcPre.gain.setTargetAtTime(h ? Math.pow(10, (h.preamp || 0) / 20) : 1, t, 0.1);
+    n.hc.forEach((b, i) => {
+      const q = fl[i];
+      if (!q) { b.type = 'peaking'; b.gain.setTargetAtTime(0, t, 0.1); return; }
+      b.type = q.type === 'LSC' ? 'lowshelf' : q.type === 'HSC' ? 'highshelf' : 'peaking';
+      b.frequency.setValueAtTime(q.fc, t); b.Q.setValueAtTime(q.q, t); b.gain.setTargetAtTime(q.gain, t, 0.1);
+    });
   }
 
   // Adaptive auto mode: measure the live spectrum and steer EQ toward a rich hi-fi target.
@@ -163,7 +182,7 @@
   }
 
   // AGC: ride the input toward a consistent loudness
-  let agcDb = 0, inDb = -100;
+  let agcDb = 0, inDb = -100, matchGain = 1;
   const obuf = new Float32Array(2048), kbuf = new Float32Array(16384);
   function rmsDb(an) { const tbuf = an.fftSize === 16384 ? kbuf : obuf; an.getFloatTimeDomainData(tbuf); let s = 0; for (const v of tbuf) s += v * v; return 10 * Math.log10(s / tbuf.length + 1e-12); }
   function agcTick() {
@@ -174,6 +193,9 @@
       agcDb += Math.max(-0.1, Math.min(0.1, want - agcDb)); // slow ride
     } else if (!cfg.agc) agcDb = 0;
     n.agc.gain.setTargetAtTime(Math.pow(10, agcDb / 20), ctx.currentTime, 0.5);
+    // Track enhanced-vs-original level so the A/B comparison is volume-matched
+    if (cfg.enabled) { const raw = rmsDb(n.analyser), out = rmsDb(n.outAn);
+      if (raw > -60 && out > -60) { const want = Math.pow(10, Math.max(-12, Math.min(12, out - raw)) / 20); matchGain += (want - matchGain) * 0.05; } }
   }
   setInterval(() => n && n.tp && n.tp.port.postMessage(0), 100);
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
@@ -184,7 +206,7 @@
   function apply() {
     if (!n) return;
     const t = ctx.currentTime;
-    n.bypass.gain.setTargetAtTime(cfg.enabled ? 0 : 1, t, 0.05);
+    n.bypass.gain.setTargetAtTime(cfg.enabled ? 0 : (cfg.matchAB ? matchGain : 1), t, 0.05);
     n.wetIn.gain.setTargetAtTime(cfg.enabled ? 1 : 0, t, 0.05);
     if (!cfg.enabled) return;
     if (PRESETS[cfg.preset]) set(PRESETS[cfg.preset]); else set(last || auto);

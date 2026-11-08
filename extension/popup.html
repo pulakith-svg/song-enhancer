@@ -10,7 +10,7 @@
   #power { width:38px; height:38px; border-radius:50%; border:2px solid var(--off); background:var(--panel); color:var(--off); font-size:18px; cursor:pointer; transition:.2s; }
   #power.on { border-color:var(--amber); color:var(--amber); box-shadow:0 0 14px var(--glow); }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
-  .title { font-size:9px; letter-spacing:.18em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; display:flex; justify-content:space-between; }
+  .title { font-size:9px; letter-spacing:.18em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; display:flex; justify-content:space-between; gap:10px; }
   .chips { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
   .chip { padding:6px 8px; border-radius:6px; border:1px solid var(--line); background:transparent; color:var(--muted); font:inherit; cursor:pointer; }
   .chip.active { border-color:var(--amber); color:var(--amber); background:#ffb34714; }
@@ -41,20 +41,36 @@
   #update { display:none; background:#ffb3471a; border:1px solid var(--amber); color:var(--amber); border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:11px; align-items:center; justify-content:space-between; gap:8px; }
   #update.show { display:flex; }
   #update a { color:#0e1013; background:var(--amber); border-radius:5px; padding:4px 8px; text-decoration:none; font-weight:600; white-space:nowrap; }
+  .search { width:100%; padding:7px 9px; border-radius:6px; border:1px solid var(--line); background:#0b0d10; color:var(--fg); font:inherit; }
+  .search:focus { outline:none; border-color:var(--amber); }
+  #hpList { max-height:150px; overflow-y:auto; margin-top:6px; display:flex; flex-direction:column; gap:2px; }
+  #hpList button { text-align:left; background:none; border:none; color:var(--fg); padding:5px 6px; border-radius:5px; cursor:pointer; font:inherit; }
+  #hpList button:hover { background:#ffffff0d; } #hpList small { color:var(--muted); }
+  #hpCur { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:11px; color:var(--amber); margin-bottom:6px; }
+  #hpCur button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px; padding:2px 8px; cursor:pointer; font:inherit; }
+  .hint { font-size:10px; color:var(--muted); margin-top:6px; }
   body.disabled .panel { opacity:.45; }
   button:focus-visible, input:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 </style></head><body>
   <header>
     <div class="brand">SONG ENHANCER<small>HI-FI PROCESSOR</small></div>
-    <button id="power" title="Turn enhancement on/off">⏻</button>
+    <button id="power" title="Turn enhancement on/off (Alt+Shift+E)">⏻</button>
   </header>
   <div id="update"><span id="updText"></span><a href="https://github.com/pulakith-svg/song-enhancer/archive/refs/heads/main.zip" target="_blank">Download</a></div>
-  <div class="panel"><div class="title">Sound mode</div><div class="chips" id="modes"></div></div>
+  <div class="panel"><div class="title">Sound mode</div><div class="chips" id="modes" style="grid-template-columns:repeat(4,1fr)"></div></div>
   <div class="panel"><div class="title">Listening on</div><div class="chips" id="devices" style="grid-template-columns:repeat(4,1fr)"></div></div>
+  <div class="panel">
+    <div class="title"><span>Headphone correction</span><span>8,000+ models</span></div>
+    <div id="hpCur" hidden><span id="hpName"></span><button id="hpClear">Off</button></div>
+    <input class="search" id="hpSearch" placeholder="Search your headphones, e.g. Sony WH-1000XM4" autocomplete="off">
+    <div id="hpList"></div>
+    <div class="hint" id="hpHint">Makes your exact model sound neutral and accurate, like studio reference headphones.</div>
+  </div>
   <div class="panel">
     <div class="title"><span>Signal processor</span><span id="state">—</span></div>
     <div class="chips" id="styles"></div>
     <div class="tog"><label for="agc">Input AGC (auto level)</label><input type="checkbox" id="agc"></div>
+    <div class="tog" style="margin-top:6px"><label for="matchAB">Volume-matched A/B (fair on/off compare)</label><input type="checkbox" id="matchAB"></div>
     <div class="meters" style="margin-top:10px">
       <span>IN</span><div class="meter"><i id="mIn"></i></div><b id="tIn">—</b>
       <span>OUT</span><div class="meter"><i id="mOut"></i></div><b id="tOut">—</b>
@@ -75,6 +91,6 @@
     <div class="eq" id="eq"></div>
   </div>
   <div class="panel"><div class="title">Processing</div><div class="knobs" id="knobs"></div></div>
-  <div class="foot"><span>YouTube Music · YouTube · v<span id="ver"></span></span><button id="reset">Reset</button></div>
+  <div class="foot"><span>Alt+Shift+E toggles · v<span id="ver"></span></span><button id="reset">Reset</button></div>
   <script src="popup.js"></script>
 </body></html>

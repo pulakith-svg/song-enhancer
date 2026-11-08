@@ -1,4 +1,4 @@
-const DEF = { v:3, enabled:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const DEF = { v:3, enabled:true, matchAB:true, hpEq:null, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
 const MODES = [['auto','Auto'],['pure','Pure'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
 const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
@@ -30,7 +30,8 @@ function render() {
   $('power').classList.toggle('on', cfg.enabled); document.body.classList.toggle('disabled', !cfg.enabled);
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === cfg.preset));
   document.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === cfg.style));
-  $('agc').checked = cfg.agc;
+  $('agc').checked = cfg.agc; $('matchAB').checked = cfg.matchAB;
+  $('hpCur').hidden = !cfg.hpEq; if (cfg.hpEq) $('hpName').textContent = '✓ ' + cfg.hpEq.name;
   document.querySelectorAll('[data-device]').forEach(b => b.classList.toggle('active', b.dataset.device === cfg.device));
   const en = eqName(); $('eqname').textContent = en;
   document.querySelectorAll('[data-eq]').forEach(b => b.classList.toggle('active', b.dataset.eq === en));
@@ -42,11 +43,12 @@ $('power').onclick = () => { cfg.enabled = !cfg.enabled; save({ enabled: cfg.ena
 $('modes').onclick = e => { const m = e.target.dataset.mode; if (m) { cfg.preset = m; save({ preset: m }); render(); } };
 $('styles').onclick = e => { const s = e.target.dataset.style; if (s) { cfg.style = s; save({ style: s }); render(); } };
 $('devices').onclick = e => { const d = e.target.dataset.device; if (d) { cfg.device = d; save({ device: d }); render(); } };
+$('matchAB').onchange = e => { cfg.matchAB = e.target.checked; save({ matchAB: cfg.matchAB }); };
 $('agc').onchange = e => { cfg.agc = e.target.checked; save({ agc: cfg.agc }); };
 $('eqpresets').onclick = e => { const p = e.target.dataset.eq; if (p) { cfg.eq = [...EQP[p]]; save({ eq: cfg.eq }); render(); } };
 HZ.forEach((_, i) => $('b' + i).oninput = e => { cfg.eq[i] = +e.target.value; save({ eq: cfg.eq }); render(); });
 for (const [id] of KNOBS) $(id).oninput = e => { cfg[id] = +e.target.value; save({ [id]: cfg[id] }); render(); };
-$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device }; save(cfg); render(); };
+$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device, hpEq: cfg.hpEq, matchAB: cfg.matchAB }; save(cfg); render(); };
 
 chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); });
 
@@ -79,3 +81,47 @@ fetch('https://raw.githubusercontent.com/pulakith-svg/song-enhancer/main/extensi
   .then(r => r.json()).then(m => {
     if (cur && newer(m.version, cur)) { $('updText').textContent = `Update available: v${m.version}. Download, unzip, then click ⟳ on chrome://extensions.`; $('update').classList.add('show'); }
   }).catch(() => {});
+
+// Headphone correction: search the AutoEQ index and load a parametric profile
+const AQ = 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/';
+let hpIndex = null;
+async function loadIndex() {
+  if (hpIndex) return hpIndex;
+  const c = await new Promise(r => chrome.storage.local.get({ aqIndex: null, aqTime: 0 }, r));
+  if (c.aqIndex && Date.now() - c.aqTime < 7 * 864e5) return (hpIndex = c.aqIndex);
+  $('hpHint').textContent = 'Loading headphone database…';
+  const txt = await (await fetch(AQ + 'INDEX.md')).text();
+  hpIndex = [...txt.matchAll(/^- \[(.+?)\]\(\.\/(.+?)\) by (.+)$/gm)].map(m => [m[1], m[2], m[3]]);
+  chrome.storage.local.set({ aqIndex: hpIndex, aqTime: Date.now() });
+  $('hpHint').textContent = hpIndex.length.toLocaleString() + ' models available.';
+  return hpIndex;
+}
+$('hpSearch').oninput = async e => {
+  const q = e.target.value.trim().toLowerCase(), list = $('hpList'); list.innerHTML = '';
+  if (q.length < 2) return;
+  let idx; try { idx = await loadIndex(); } catch { $('hpHint').textContent = 'Could not load the headphone database. Check your connection.'; return; }
+  const words = q.split(/\s+/), seen = new Set();
+  for (const [name, path, by] of idx) {
+    if (!words.every(w => name.toLowerCase().includes(w)) || seen.has(name)) continue;
+    seen.add(name);
+    const b = document.createElement('button'); b.innerHTML = `${name} <small>· ${by.replace(/ on .*/, '')}</small>`;
+    b.onclick = () => pickHp(name, path); list.appendChild(b);
+    if (seen.size >= 30) break;
+  }
+  if (!seen.size) list.innerHTML = '<small style="color:var(--muted);padding:5px">No match. Try just the brand and model number.</small>';
+};
+async function pickHp(name, path) {
+  $('hpHint').textContent = 'Loading ' + name + '…';
+  try {
+    const file = decodeURIComponent(path.split('/').pop());
+    const txt = await (await fetch(AQ + path + '/' + encodeURIComponent(file + ' ParametricEQ.txt'))).text();
+    const pre = /Preamp:\s*(-?[\d.]+)/.exec(txt);
+    const filters = [...txt.matchAll(/ON (PK|LSC|HSC) Fc (\d+(?:\.\d+)?) Hz Gain (-?[\d.]+) dB Q ([\d.]+)/g)]
+      .slice(0, 10).map(m => ({ type: m[1], fc: +m[2], gain: +m[3], q: +m[4] }));
+    if (!filters.length) throw 0;
+    cfg.hpEq = { name, preamp: pre ? +pre[1] : 0, filters }; save({ hpEq: cfg.hpEq });
+    $('hpList').innerHTML = ''; $('hpSearch').value = '';
+    $('hpHint').textContent = `Correction for ${name} is active (${filters.length} filters).`; render();
+  } catch { $('hpHint').textContent = 'No correction profile found for that entry. Try another one.'; }
+}
+$('hpClear').onclick = () => { cfg.hpEq = null; save({ hpEq: null }); $('hpHint').textContent = 'Headphone correction is off.'; render(); };

@@ -26,6 +26,12 @@ LUFS loudness AGC (ITU-R BS.1770 K-weighted, targets −16 LUFS) → subsonic fi
 
 Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), **Club** (maximum punch). The popup shows live IN/OUT/AGC meters and gain reduction for each band and the limiter.
 
+**Headphone correction:** search your exact headphone or earbud model (8,000+ models from the AutoEQ measurement database by oratory1990, crinacle and others) and the extension applies a parametric correction so it sounds neutral and accurate.
+
+**Volume-matched A/B:** when you turn enhancement off, the original plays at the same loudness, so you hear the real difference instead of "louder sounds better".
+
+**Shortcut:** Alt+Shift+E turns enhancement on/off (change it at chrome://extensions/shortcuts).
+
 **Updates:** the popup shows an "Update available" banner when a newer version is on GitHub. For fully automatic updates, publish it to the Chrome Web Store — see [PUBLISH.md](PUBLISH.md).
 
 **Spotify:** not supported. Spotify encrypts its audio (DRM), so browsers and extensions only receive silence. Use Spotify's built-in equalizer (Settings → Playback → Equalizer) or a system-wide equalizer such as Equalizer APO (Windows) or eqMac (Mac).
