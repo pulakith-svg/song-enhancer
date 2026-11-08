@@ -7,3 +7,17 @@ A browser-based song enhancement tool. Load a song and **Auto Enhance (Hi-Fi)** 
 - Presets: Balanced Master, Bass Boost, Vocal Clarity, Warm Vintage, Loud & Punchy, Concert Hall
 - Real-time preview, A/B against the original, spectrum visualizer
 - Auto-normalize and export the enhanced track as WAV
+
+## Browser extension: YouTube Music & YouTube
+
+The `extension/` folder is a Chrome/Edge extension that enhances YouTube Music (and YouTube) **live, automatically**.
+
+**Install**
+1. Download this repo (green **Code** button → **Download ZIP**) and unzip it.
+2. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and select the `extension` folder.
+4. Reload any open YouTube Music tab and press play.
+
+Click the extension icon to turn enhancement on/off, choose a mode (Auto Enhance adapts to each song in real time), and set the intensity.
+
+**Spotify:** not supported. Spotify encrypts its audio (DRM), so browsers and extensions only receive silence. Use Spotify's built-in equalizer (Settings → Playback → Equalizer) or a system-wide equalizer such as Equalizer APO (Windows) or eqMac (Mac).

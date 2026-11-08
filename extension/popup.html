@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  body { width:240px; margin:0; padding:14px; font:14px system-ui,sans-serif; background:#fff; color:#1b1b22; }
+  @media (prefers-color-scheme: dark) { body { background:#1c1c24; color:#ececf2; } }
+  h1 { font-size:15px; margin:0 0 12px; } label { display:block; margin:10px 0 4px; font-size:12px; opacity:.75; }
+  select, input[type=range] { width:100%; } .row { display:flex; justify-content:space-between; align-items:center; }
+  p { font-size:11px; opacity:.6; margin:12px 0 0; }
+</style></head><body>
+  <h1>Song Enhancer Hi-Fi</h1>
+  <div class="row"><span>Enhancement</span><input type="checkbox" id="enabled"></div>
+  <label for="preset">Mode</label>
+  <select id="preset">
+    <option value="auto">Auto Enhance (adaptive)</option>
+    <option value="bass">Bass Boost</option>
+    <option value="vocal">Vocal Clarity</option>
+    <option value="warm">Warm Vintage</option>
+    <option value="loud">Loud &amp; Punchy</option>
+  </select>
+  <label for="intensity">Intensity <span id="iv"></span></label>
+  <input type="range" id="intensity" min="0" max="100">
+  <p>Works on YouTube Music and YouTube. Reload the tab after installing.</p>
+  <script src="popup.js"></script>
+</body></html>
