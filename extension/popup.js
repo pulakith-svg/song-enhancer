@@ -1,5 +1,5 @@
 const DEF = { v:3, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
-const MODES = [['auto','Auto'],['pure','Pure'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
+const MODES = [['auto','Auto'],['pure','Pure'],['cinema','Cinematic'],['epic','Epic'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
 const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
 const HZ = ['31','62','125','250','500','1k','2k','4k','8k','16k'];

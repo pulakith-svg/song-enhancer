@@ -3,6 +3,8 @@
   // Mode settings: EQ in dB, comp/width/exciter/bassEnh/surround in %
   const PRESETS = {
     auto:  null, // adaptive
+    cinema:{ bass:2,  lowmid:-1, mid:1,  treble:2,  comp:15, width:125, exciter:8,  bassEnh:8,  surround:0, reverb:12, sub:2 },
+    epic:  { bass:3,  lowmid:-1.5,mid:1, treble:2.5,comp:20, width:130, exciter:10, bassEnh:15, surround:0, reverb:14, sub:4.5 },
     pure:  { bass:0,  lowmid:0,  mid:0,  treble:0,  comp:0,  width:100, exciter:0,  bassEnh:0,  surround:0 },
     bass:  { bass:6,  lowmid:-1, mid:0,  treble:1,  comp:30, width:105, exciter:0,  bassEnh:20, surround:0 },
     vocal: { bass:-1, lowmid:-2, mid:3.5,treble:2,  comp:30, width:100, exciter:10, bassEnh:0,  surround:0 },
@@ -27,6 +29,22 @@
   const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
+
+  function hallIR(c, secs) {
+    const sr = c.sampleRate, len = Math.floor(sr * secs), ir = c.createBuffer(2, len, sr);
+    const early = [[0.011, 0.5], [0.019, 0.38], [0.027, 0.3], [0.041, 0.24], [0.053, 0.18], [0.067, 0.14]];
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch); let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const tt = i / sr, env = Math.pow(1 - i / len, 2.2) * Math.exp(-tt * 2.2);
+        const damp = 0.15 + 0.8 * Math.min(1, tt / secs); // darker as it decays
+        lp += (1 - damp) * ((Math.random() * 2 - 1) - lp);
+        d[i] = lp * env * Math.min(1, tt / 0.03);
+      }
+      for (const [dt, a] of early) { const k = Math.floor((dt + (ch ? 0.0037 : 0)) * sr); if (k < len) d[k] += a * (ch ? -1 : 1) * (0.9 + Math.random() * 0.2); }
+    }
+    return ir;
+  }
 
   function build(c) {
     const x = {}, f = (type, freq, q) => { const b = c.createBiquadFilter(); b.type = type; b.frequency.value = freq; if (q) b.Q.value = q; return b; };
@@ -64,6 +82,13 @@
       x.bands.push({ cmp, out });
     }
     x.makeup = g(1);
+    // Sub-bass shelf (cinematic low end)
+    x.sub = f('lowshelf', 45);
+    // Concert-hall reverb send: generated stereo impulse with pre-delay, early reflections and HF damping
+    x.rvSend = g(0); x.rvPre = c.createDelay(0.1); x.rvPre.delayTime.value = 0.025;
+    x.rvHp = f('highpass', 220, -3.0103); x.rvLp = f('lowpass', 7000, -3.0103);
+    x.rv = c.createConvolver(); x.rv.normalize = true; x.rv.buffer = hallIR(c, 2.4);
+    x.rvRet = g(1);
     // Soft clipper (transparent until peaks), before the final limiter
     x.clip = c.createWaveShaper(); x.clip.oversample = '4x';
     { const cv = new Float32Array(2048); for (let i = 0; i < 2048; i++) { const v = i / 1023.5 - 1, a = Math.abs(v);
@@ -110,7 +135,8 @@
       .connect(x.geq[0]); x.geq[x.geq.length - 1].connect(x.comp);
     x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exPost).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
-    x.mbOut.connect(x.makeup).connect(x.split);
+    x.mbOut.connect(x.makeup).connect(x.sub).connect(x.split);
+    x.sub.connect(x.rvSend).connect(x.rvPre).connect(x.rvHp).connect(x.rvLp).connect(x.rv).connect(x.rvRet).connect(x.merge);
     x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.hcPre); x.hc[9].connect(x.pS); x.pM.connect(x.lcLo).connect(x.lcHi).connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
     x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
     x.limOut = g(1); x.limOut.connect(c.destination); x.limOut.connect(x.outAn);
@@ -145,6 +171,8 @@
     ramp(n.exGain.gain, s.exciter / 100 * 0.12 * k);
     ramp(n.beGain.gain, s.bassEnh / 100 * 0.15 * k);
     ramp(n.boost.gain, Math.pow(10, cfg.uBoost / 20));
+    ramp(n.rvSend.gain, (s.reverb || 0) / 100 * k * 0.9);
+    ramp(n.sub.gain, (s.sub || 0) * k);
     const d = DEVICES[cfg.device] || DEVICES.headphones;
     ramp(n.dHp.frequency, d.hp); ramp(n.dLo.gain, d.lo); ramp(n.dLm.gain, d.lm); ramp(n.dHm.gain, d.hm); ramp(n.dHi.gain, d.hi);
     ramp(n.fgL.gain, d.feed); ramp(n.fgR.gain, d.feed);
