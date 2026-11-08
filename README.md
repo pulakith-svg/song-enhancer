@@ -18,6 +18,6 @@ The `extension/` folder is a Chrome/Edge extension that enhances YouTube Music (
 3. Click **Load unpacked** and select the `extension` folder.
 4. Reload any open YouTube Music tab and press play.
 
-Click the extension icon to turn enhancement on/off, choose a mode (Auto Enhance adapts to each song in real time), set the effect intensity (up to 150%), and fine-tune with your own Bass, Vocals, Treble, Stereo width, 3D surround and Volume boost sliders.
+Click the extension icon to turn enhancement on/off, choose a mode (Auto Enhance adapts to each song in real time), set the effect intensity (up to 150%), and fine-tune with a pro 10-band graphic equalizer (31 Hz–16 kHz, with Flat, V-Shape, Bass, Vocal, Bright and Night presets) plus Stereo width, 3D surround and Volume boost.
 
 **Spotify:** not supported. Spotify encrypts its audio (DRM), so browsers and extensions only receive silence. Use Spotify's built-in equalizer (Settings → Playback → Equalizer) or a system-wide equalizer such as Equalizer APO (Windows) or eqMac (Mac).

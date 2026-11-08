@@ -9,7 +9,8 @@
     loud:  { bass:6,  lowmid:-2, mid:4,  treble:5,  comp:90, width:130, exciter:35, bassEnh:50, surround:25 },
     hifi:  { bass:4,  lowmid:-2, mid:2,  treble:4,  comp:45, width:125, exciter:30, bassEnh:35, surround:30 },
   };
-  const DEF = { enabled:true, preset:'auto', intensity:100, uBass:0, uTreble:0, uVocal:0, uWidth:0, uSurround:0, uBoost:0 };
+  const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+  const DEF = { enabled:true, preset:'auto', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -21,7 +22,9 @@
     x.input = g(1); x.bypass = g(0); x.wetIn = g(1);
     x.hp = f('highpass', 25, 0.7);
     x.bass = f('lowshelf', 90); x.lowmid = f('peaking', 350, 1); x.mid = f('peaking', 2800, 0.8); x.treble = f('highshelf', 9000);
-    x.uBass = f('lowshelf', 70); x.uVocal = f('peaking', 2200, 0.7); x.uTreble = f('highshelf', 7000);
+    // 10-band graphic EQ (user)
+    x.geq = BANDS.map((fr, i) => f(i === 0 ? 'lowshelf' : i === BANDS.length - 1 ? 'highshelf' : 'peaking', fr, 1.4));
+    for (let i = 0; i < x.geq.length - 1; i++) x.geq[i].connect(x.geq[i + 1]);
     // Harmonic exciter (detail)
     x.exHp = f('highpass', 3500); x.exShape = shaper(4); x.exGain = g(0);
     // Bass enhancer: adds harmonics of the lows so bass sounds deeper on any speaker
@@ -44,8 +47,8 @@
     x.input.connect(x.analyser);
     x.input.connect(x.bypass).connect(c.destination);
     x.input.connect(x.wetIn).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble)
-      .connect(x.uBass).connect(x.uVocal).connect(x.uTreble).connect(x.comp);
-    x.uTreble.connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
+      .connect(x.geq[0]); x.geq[x.geq.length - 1].connect(x.comp);
+    x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
     x.comp.connect(x.makeup).connect(x.split);
     x.merge.connect(x.boost).connect(x.lim).connect(c.destination);
@@ -56,7 +59,7 @@
     last = s;
     const t = ctx.currentTime, k = cfg.intensity / 100, ramp = (p, v) => p.setTargetAtTime(v, t, 0.25);
     ramp(n.bass.gain, s.bass * k); ramp(n.lowmid.gain, s.lowmid * k); ramp(n.mid.gain, s.mid * k); ramp(n.treble.gain, s.treble * k);
-    ramp(n.uBass.gain, cfg.uBass); ramp(n.uVocal.gain, cfg.uVocal); ramp(n.uTreble.gain, cfg.uTreble);
+    n.geq.forEach((b, i) => ramp(b.gain, (cfg.eq && cfg.eq[i]) || 0));
     const c = Math.min(1, s.comp / 100 * k);
     ramp(n.comp.threshold, -c * 32); ramp(n.comp.ratio, 1 + c * 9); ramp(n.makeup.gain, Math.pow(10, c * 32 * 0.32 / 20));
     ramp(n.side.gain, Math.max(0, 1 + (s.width / 100 - 1) * k + cfg.uWidth / 100));

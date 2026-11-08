@@ -1,29 +1,41 @@
-const DEF = { enabled:true, preset:'auto', intensity:100, uBass:0, uTreble:0, uVocal:0, uWidth:0, uSurround:0, uBoost:0 };
-const SLIDERS = [
-  ['h', 'Strength'],
-  ['intensity', 'Effect intensity', 0, 150, 5, '%'],
-  ['h', 'Your sound'],
-  ['uBass', 'Bass', -12, 12, 0.5, ' dB'],
-  ['uVocal', 'Vocals', -12, 12, 0.5, ' dB'],
-  ['uTreble', 'Treble', -12, 12, 0.5, ' dB'],
-  ['uWidth', 'Stereo width', -100, 100, 5, '%'],
-  ['uSurround', '3D surround', 0, 100, 5, '%'],
-  ['uBoost', 'Volume boost', 0, 9, 0.5, ' dB'],
-];
-const $ = id => document.getElementById(id), box = $('sliders');
-for (const [id, name, min, max, step, unit] of SLIDERS) {
-  if (id === 'h') { const h = document.createElement('h2'); h.textContent = name; box.appendChild(h); continue; }
-  box.insertAdjacentHTML('beforeend', `<label for="${id}">${name}<span id="v_${id}"></span></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}">`);
-  $(id).oninput = e => { show(id, unit, +e.target.value); chrome.storage.sync.set({ [id]: +e.target.value }); };
+const DEF = { enabled:true, preset:'auto', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const MODES = [['auto','Auto'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
+const HZ = ['31','62','125','250','500','1k','2k','4k','8k','16k'];
+const EQP = {
+  Flat:   [0,0,0,0,0,0,0,0,0,0],
+  'V-Shape': [6,5,3,0,-2,-2,0,3,5,6],
+  Bass:   [8,7,5,2,0,0,0,0,0,0],
+  Vocal:  [-2,-2,-1,0,2,4,5,4,2,0],
+  Bright: [0,0,0,0,0,1,2,4,6,7],
+  Night:  [-3,-2,-1,0,1,2,2,1,-1,-3],
+};
+const KNOBS = [['intensity','Effect intensity',0,150,5,'%'],['uBoost','Volume boost',0,9,0.5,' dB'],['uWidth','Stereo width',-100,100,5,'%'],['uSurround','3D surround',0,100,5,'%']];
+const $ = id => document.getElementById(id), save = o => chrome.storage.sync.set(o);
+let cfg = { ...DEF };
+
+for (const [id, name] of MODES) $('modes').insertAdjacentHTML('beforeend', `<button class="chip" data-mode="${id}">${name}</button>`);
+for (const name in EQP) $('eqpresets').insertAdjacentHTML('beforeend', `<button class="chip" data-eq="${name}">${name}</button>`);
+HZ.forEach((hz, i) => $('eq').insertAdjacentHTML('beforeend',
+  `<div class="band"><span class="db" id="db${i}"></span><input type="range" id="b${i}" min="-12" max="12" step="0.5" aria-label="${hz} Hz"><span class="hz">${hz}</span></div>`));
+for (const [id, name, min, max, step] of KNOBS) $('knobs').insertAdjacentHTML('beforeend',
+  `<div class="knob"><label for="${id}">${name}<span id="v_${id}"></span></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"></div>`);
+
+const fmt = (v, u) => (v > 0 && u.includes('dB') ? '+' : '') + v + u;
+function eqName() { const m = Object.entries(EQP).find(([, a]) => a.every((v, i) => v === cfg.eq[i])); return m ? m[0] : 'Custom'; }
+function render() {
+  $('power').classList.toggle('on', cfg.enabled); document.body.classList.toggle('disabled', !cfg.enabled);
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === cfg.preset));
+  const en = eqName(); $('eqname').textContent = en;
+  document.querySelectorAll('[data-eq]').forEach(b => b.classList.toggle('active', b.dataset.eq === en));
+  cfg.eq.forEach((v, i) => { $('b' + i).value = v; $('db' + i).textContent = v ? fmt(v, '') : '0'; });
+  for (const [id, , , , , u] of KNOBS) { $(id).value = cfg[id]; $('v_' + id).textContent = fmt(cfg[id], u); }
 }
-function show(id, unit, v) { $('v_' + id).textContent = (v > 0 && unit.includes('dB') ? '+' : '') + v + unit; }
-function load() {
-  chrome.storage.sync.get(DEF, v => {
-    $('enabled').checked = v.enabled; $('preset').value = v.preset;
-    for (const [id, , , , , unit] of SLIDERS) if (id !== 'h') { $(id).value = v[id]; show(id, unit, v[id]); }
-  });
-}
-$('enabled').onchange = e => chrome.storage.sync.set({ enabled: e.target.checked });
-$('preset').onchange = e => chrome.storage.sync.set({ preset: e.target.value });
-$('reset').onclick = () => chrome.storage.sync.set({ uBass:0, uTreble:0, uVocal:0, uWidth:0, uSurround:0, uBoost:0, intensity:100 }, load);
-load();
+
+$('power').onclick = () => { cfg.enabled = !cfg.enabled; save({ enabled: cfg.enabled }); render(); };
+$('modes').onclick = e => { const m = e.target.dataset.mode; if (m) { cfg.preset = m; save({ preset: m }); render(); } };
+$('eqpresets').onclick = e => { const p = e.target.dataset.eq; if (p) { cfg.eq = [...EQP[p]]; save({ eq: cfg.eq }); render(); } };
+HZ.forEach((_, i) => $('b' + i).oninput = e => { cfg.eq[i] = +e.target.value; save({ eq: cfg.eq }); render(); });
+for (const [id] of KNOBS) $(id).oninput = e => { cfg[id] = +e.target.value; save({ [id]: cfg[id] }); render(); };
+$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset }; save(cfg); render(); };
+
+chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); });

@@ -1,29 +1,47 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><style>
-  body { width:270px; margin:0; padding:14px; font:13px system-ui,sans-serif; background:#fff; color:#1b1b22; }
-  @media (prefers-color-scheme: dark) { body { background:#1c1c24; color:#ececf2; } }
-  h1 { font-size:15px; margin:0 0 10px; }
-  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; opacity:.6; margin:14px 0 4px; }
-  label { display:flex; justify-content:space-between; margin:8px 0 2px; font-size:12px; }
-  label span { font-variant-numeric:tabular-nums; opacity:.8; }
-  select, input[type=range] { width:100%; accent-color:#5b5bd6; } select { padding:4px; }
-  .row { display:flex; justify-content:space-between; align-items:center; font-weight:600; }
-  button { margin-top:12px; width:100%; padding:6px; border-radius:6px; border:1px solid #8884; background:transparent; color:inherit; cursor:pointer; }
-  p { font-size:11px; opacity:.6; margin:10px 0 0; }
+<html><head><meta charset="utf-8">
+<style>
+  :root { --bg:#0e1013; --panel:#171a1f; --line:#262a31; --fg:#e8eaed; --muted:#8a9099; --amber:#ffb347; --glow:#ffb34755; --off:#3a3f47; }
+  * { box-sizing:border-box; }
+  body { width:360px; margin:0; padding:16px; font:12px/1.4 "Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .brand { font-weight:700; letter-spacing:.14em; font-size:13px; }
+  .brand small { display:block; font-weight:500; letter-spacing:.2em; color:var(--amber); font-size:9px; }
+  #power { width:38px; height:38px; border-radius:50%; border:2px solid var(--off); background:var(--panel); color:var(--off); font-size:18px; cursor:pointer; transition:.2s; }
+  #power.on { border-color:var(--amber); color:var(--amber); box-shadow:0 0 14px var(--glow); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+  .title { font-size:9px; letter-spacing:.18em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; display:flex; justify-content:space-between; }
+  .chips { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .chip { padding:6px 8px; border-radius:6px; border:1px solid var(--line); background:transparent; color:var(--muted); font:inherit; cursor:pointer; }
+  .chip.active { border-color:var(--amber); color:var(--amber); background:#ffb34714; }
+  .chip:hover { color:var(--fg); }
+  .eq { display:grid; grid-template-columns:repeat(10,1fr); gap:2px; align-items:end; position:relative; }
+  .eq::before { content:""; position:absolute; left:0; right:0; top:calc(50% - 10px); border-top:1px dashed var(--line); }
+  .band { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .band input { writing-mode:vertical-lr; direction:rtl; height:120px; width:22px; accent-color:var(--amber); margin:0; }
+  .band .db { font-size:9px; color:var(--amber); font-variant-numeric:tabular-nums; height:11px; }
+  .band .hz { font-size:9px; color:var(--muted); }
+  .knobs { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  .knob label { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
+  .knob label span { color:var(--fg); font-variant-numeric:tabular-nums; }
+  .knob input { width:100%; accent-color:var(--amber); }
+  .foot { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:10px; }
+  .foot button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:4px 10px; cursor:pointer; font:inherit; }
+  .foot button:hover { color:var(--fg); }
+  body.disabled .panel { opacity:.45; }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 </style></head><body>
-  <h1>Song Enhancer Hi-Fi</h1>
-  <div class="row"><span>Enhancement</span><input type="checkbox" id="enabled"></div>
-  <h2>Mode</h2>
-  <select id="preset">
-    <option value="auto">Auto Enhance (adaptive)</option>
-    <option value="hifi">Hi-Fi Studio</option>
-    <option value="bass">Bass Boost</option>
-    <option value="vocal">Vocal Clarity</option>
-    <option value="warm">Warm Vintage</option>
-    <option value="loud">Loud &amp; Punchy</option>
-  </select>
-  <div id="sliders"></div>
-  <button id="reset">Reset my sliders</button>
-  <p>Works on YouTube Music and YouTube. Reload the tab after installing.</p>
+  <header>
+    <div class="brand">SONG ENHANCER<small>HI-FI PROCESSOR</small></div>
+    <button id="power" title="Turn enhancement on/off">⏻</button>
+  </header>
+  <div class="panel"><div class="title">Sound mode</div><div class="chips" id="modes"></div></div>
+  <div class="panel">
+    <div class="title"><span>10-band equalizer</span><span id="eqname"></span></div>
+    <div class="chips" id="eqpresets" style="margin-bottom:10px"></div>
+    <div class="eq" id="eq"></div>
+  </div>
+  <div class="panel"><div class="title">Processing</div><div class="knobs" id="knobs"></div></div>
+  <div class="foot"><span>YouTube Music · YouTube</span><button id="reset">Reset</button></div>
   <script src="popup.js"></script>
 </body></html>
