@@ -1,4 +1,5 @@
-const DEF = { v:4, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+let np = { artist: '', title: '' }, lastMeters = null; // used by meters and presets
+const DEF = { v:4, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, presets:{}, artistMap:{}, activePreset:'', preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
 const MODES = [['smart','Smart'],['auto','Auto'],['pure','Pure'],['cinema','Cinematic'],['epic','Epic'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
 const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
@@ -52,14 +53,15 @@ $('agc').onchange = e => { cfg.agc = e.target.checked; save({ agc: cfg.agc }); }
 $('eqpresets').onclick = e => { const p = e.target.dataset.eq; if (p) { cfg.eq = [...EQP[p]]; save({ eq: cfg.eq }); render(); } };
 HZ.forEach((_, i) => $('b' + i).oninput = e => { cfg.eq[i] = +e.target.value; save({ eq: cfg.eq }); render(); });
 for (const [id] of KNOBS) $(id).oninput = e => { cfg[id] = +e.target.value; save({ [id]: cfg[id] }); render(); };
-$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device, hpEq: cfg.hpEq, matchAB: cfg.matchAB, hearing: cfg.hearing, loudComp: cfg.loudComp }; save(cfg); render(); };
+$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device, hpEq: cfg.hpEq, matchAB: cfg.matchAB, hearing: cfg.hearing, loudComp: cfg.loudComp, presets: cfg.presets, artistMap: cfg.artistMap, activePreset: '' }; save(cfg); render(); };
 
-chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); });
+chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); renderPresets(); });
 
 // Live meters from the active tab
 const pct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
 function meters(m) {
   if (!m) { $('state').textContent = 'No music playing'; return; }
+  lastMeters = m; if (m.nowPlaying && (m.nowPlaying.artist !== np.artist || m.nowPlaying.title !== np.title)) { np = m.nowPlaying; renderPresets(); }
   $('state').textContent = m.on ? (m.genre ? 'Smart · ' + m.genre : 'Processing') : 'Bypassed';
   $('mIn').style.width = pct(m.in) + '%'; $('tIn').textContent = m.in > -90 ? m.in.toFixed(1) + ' dB' : '—';
   $('mOut').style.width = pct(m.out) + '%'; $('tOut').textContent = m.out > -90 ? m.out.toFixed(1) + ' dB' : '—';
@@ -131,3 +133,57 @@ async function pickHp(name, path) {
 $('hpClear').onclick = () => { cfg.hpEq = null; save({ hpEq: null }); $('hpHint').textContent = 'Headphone correction is off.'; render(); };
 
 chrome.storage.onChanged && chrome.storage.onChanged.addListener(ch => { if (ch.hearing) { cfg.hearing = ch.hearing.newValue; render(); } });
+
+// Saved presets + per-artist memory
+const SNAP = ['preset', 'style', 'device', 'eq', 'intensity', 'uWidth', 'uSurround', 'uBoost', 'agc'];
+function renderPresets() {
+  const box = $('presetList'); box.innerHTML = '';
+  const names = Object.keys(cfg.presets || {});
+  if (!names.length) box.innerHTML = '<small style="color:var(--muted)">No saved presets yet. Set the sound you like, name it and press Save.</small>';
+  for (const name of names) {
+    const d = document.createElement('div'); d.className = 'pc' + (cfg.activePreset === name ? ' active' : '');
+    const b = document.createElement('button'); b.textContent = name; b.onclick = () => loadPreset(name);
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.title = 'Delete'; x.onclick = () => delPreset(name);
+    d.append(b, x); box.appendChild(d);
+  }
+  const a = np.artist.toLowerCase(), mapped = a && cfg.artistMap[a];
+  $('np').textContent = np.artist ? `♪ ${np.title || ''} — ${np.artist}` : 'Nothing playing';
+  $('artistState').textContent = mapped ? 'Artist: ' + mapped : '';
+  $('pArtist').checked = !!(mapped && mapped === cfg.activePreset);
+  $('pArtist').disabled = !np.artist || !cfg.activePreset;
+}
+function loadPreset(name) { const s = cfg.presets[name]; if (!s) return; Object.assign(cfg, s, { activePreset: name }); save({ ...s, activePreset: name }); render(); renderPresets(); }
+function delPreset(name) {
+  delete cfg.presets[name]; for (const k in cfg.artistMap) if (cfg.artistMap[k] === name) delete cfg.artistMap[k];
+  if (cfg.activePreset === name) cfg.activePreset = '';
+  save({ presets: cfg.presets, artistMap: cfg.artistMap, activePreset: cfg.activePreset }); renderPresets();
+}
+$('pSave').onclick = () => {
+  const name = $('pName').value.trim(); if (!name) { $('pName').focus(); return; }
+  const snap = {}; for (const k of SNAP) snap[k] = cfg[k];
+  cfg.presets = { ...cfg.presets, [name]: snap }; cfg.activePreset = name; $('pName').value = '';
+  save({ presets: cfg.presets, activePreset: name }); renderPresets();
+};
+$('pName').onkeydown = e => { if (e.key === 'Enter') $('pSave').click(); };
+$('pArtist').onchange = e => {
+  const a = np.artist.toLowerCase(); if (!a) return;
+  cfg.artistMap = { ...cfg.artistMap }; if (e.target.checked && cfg.activePreset) cfg.artistMap[a] = cfg.activePreset; else delete cfg.artistMap[a];
+  save({ artistMap: cfg.artistMap }); renderPresets();
+};
+// Any manual change means we are no longer exactly on a saved preset
+document.addEventListener('input', e => { if (!['pName', 'hpSearch', 'pArtist'].includes(e.target.id) && cfg.activePreset) { cfg.activePreset = ''; save({ activePreset: '' }); renderPresets(); } }, true);
+document.addEventListener('click', e => { if (e.target.closest('#modes,#styles,#devices,#eqpresets') && cfg.activePreset) { cfg.activePreset = ''; save({ activePreset: '' }); renderPresets(); } }, true);
+
+// Feedback: open a pre-filled GitHub issue with diagnostics
+$('feedback').onclick = () => {
+  const m = lastMeters || {};
+  const diag = [
+    `Version: ${cur}`, `Mode: ${cfg.preset}${m.genre ? ' (Smart detected: ' + m.genre + ')' : ''}`, `Style: ${cfg.style}`, `Device: ${cfg.device}`,
+    `Headphone correction: ${cfg.hpEq ? cfg.hpEq.name : 'off'}`, `Hearing profile: ${cfg.hearing ? 'yes' : 'no'}`,
+    `Intensity: ${cfg.intensity}%  Boost: ${cfg.uBoost} dB  Width: ${cfg.uWidth}  Surround: ${cfg.uSurround}`,
+    `EQ: ${cfg.eq.join(', ')}`, `Meters: ${m.in !== undefined ? `in ${m.in.toFixed(1)} / out ${m.out.toFixed(1)} / limiter ${m.lim.toFixed(1)} dB / ${m.tp ? 'true-peak' : 'standard'} limiter` : 'no music playing'}`,
+    `Now playing: ${np.title} — ${np.artist}`, `Browser: ${navigator.userAgent}`,
+  ].join('\n');
+  const body = `**What do you hear?** (e.g. distorted, too much bass, no difference)\n\n\n**Diagnostics** (filled in automatically)\n\`\`\`\n${diag}\n\`\`\``;
+  chrome.tabs.create({ url: 'https://github.com/pulakith-svg/song-enhancer/issues/new?title=' + encodeURIComponent('Sound feedback') + '&body=' + encodeURIComponent(body) });
+};

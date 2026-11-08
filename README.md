@@ -30,7 +30,7 @@ Cinematic modes: **Cinematic** (wide, immersive soundstage, subtle concert-hall 
 
 Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), **Club** (maximum punch). The popup shows live IN/OUT/AGC meters and gain reduction for each band and the limiter.
 
-**Headphone correction:** search your exact headphone or earbud model (8,000+ models from the AutoEQ measurement database by oratory1990, crinacle and others) and the extension applies a parametric correction so it sounds neutral and accurate.
+**Headphone correction:** search your exact headphone or earbud model (8,000+ models from the AutoEQ measurement database by oratory1990, crinacle and others) and the extension applies a parametric correction (exact RBJ cookbook filters, including correctly sloped shelves) so it sounds neutral and accurate.
 
 **Personal hearing test:** a 2-minute test of each ear (8 frequencies, 250 Hz–8 kHz). The enhancer then gently compensates for the frequencies you hear less well, separately for each ear (up to +10 dB). A listening-comfort tool, not a medical test.
 
@@ -39,6 +39,10 @@ Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), 
 **Volume-matched A/B:** when you turn enhancement off, the original plays at the same loudness, so you hear the real difference instead of "louder sounds better".
 
 **Shortcut:** Alt+Shift+E turns enhancement on/off (change it at chrome://extensions/shortcuts).
+
+**My presets:** save the current sound under a name and recall it in one tap. Tick "Use the selected preset whenever this artist plays" and the extension switches automatically when that artist comes on (reads the artist from the player's media info).
+
+**Report a problem:** opens a GitHub issue pre-filled with diagnostics (version, mode, detected style, meters, settings) so problems can be fixed precisely.
 
 **Updates:** the popup shows an "Update available" banner when a newer version is on GitHub. For fully automatic updates, publish it to the Chrome Web Store — see [PUBLISH.md](PUBLISH.md).
 

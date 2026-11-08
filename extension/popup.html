@@ -50,6 +50,13 @@
   #hpCur button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px; padding:2px 8px; cursor:pointer; font:inherit; }
   .row { display:flex; align-items:center; }
   .hint { font-size:10px; color:var(--muted); margin-top:6px; }
+  .prow { display:flex; gap:6px; margin-top:8px; } .prow .search { flex:1; }
+  #presetList { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  #presetList .pc { display:flex; align-items:center; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  #presetList .pc.active { border-color:var(--amber); }
+  #presetList .pc button { background:none; border:none; color:var(--fg); padding:5px 8px; cursor:pointer; font:inherit; }
+  #presetList .pc button.x { color:var(--muted); padding:5px 7px; border-left:1px solid var(--line); }
+  #np { font-size:11px; color:var(--fg); margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   body.disabled .panel { opacity:.45; }
   button:focus-visible, input:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 </style></head><body>
@@ -92,11 +99,18 @@
     </div>
   </div>
   <div class="panel">
+    <div class="title"><span>My presets</span><span id="artistState"></span></div>
+    <div id="np">Nothing playing</div>
+    <div class="prow"><input class="search" id="pName" placeholder="Name this sound, e.g. Night drive" maxlength="24"><button class="chip" id="pSave">Save</button></div>
+    <div id="presetList"></div>
+    <div class="tog"><label for="pArtist">Use the selected preset whenever this artist plays</label><input type="checkbox" id="pArtist"></div>
+  </div>
+  <div class="panel">
     <div class="title"><span>10-band equalizer</span><span id="eqname"></span></div>
     <div class="chips" id="eqpresets" style="margin-bottom:10px"></div>
     <div class="eq" id="eq"></div>
   </div>
   <div class="panel"><div class="title">Processing</div><div class="knobs" id="knobs"></div></div>
-  <div class="foot"><span>Alt+Shift+E toggles · v<span id="ver"></span></span><button id="reset">Reset</button></div>
+  <div class="foot"><span>Alt+Shift+E toggles · v<span id="ver"></span></span><span style="display:flex;gap:6px"><button id="feedback">Report a problem</button><button id="reset">Reset</button></span></div>
   <script src="popup.js"></script>
 </body></html>

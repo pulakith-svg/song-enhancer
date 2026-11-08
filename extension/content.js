@@ -113,8 +113,7 @@
     x.xs.connect(x.fL, 0); x.fL.connect(x.fdL).connect(x.fgL).connect(x.xm, 0, 1);
     x.xs.connect(x.fR, 1); x.fR.connect(x.fdR).connect(x.fgR).connect(x.xm, 0, 0);
     // Headphone correction (AutoEQ parametric profile): preamp + up to 10 filters
-    x.hcPre = g(1); x.hc = Array.from({ length: 10 }, () => f('peaking', 1000, 1));
-    x.hcPre.connect(x.hc[0]); for (let i = 0; i < 9; i++) x.hc[i].connect(x.hc[i + 1]);
+    x.hcPre = g(1); x.hcOut = g(1); x.hcNodes = []; x.hcPre.connect(x.hcOut);
     // Personal hearing compensation: 8 bands per ear
     x.HF = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000];
     x.pS = c.createChannelSplitter(2); x.pM = c.createChannelMerger(2);
@@ -137,7 +136,7 @@
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
     x.mbOut.connect(x.makeup).connect(x.sub).connect(x.split);
     x.sub.connect(x.rvSend).connect(x.rvPre).connect(x.rvHp).connect(x.rvLp).connect(x.rv).connect(x.rvRet).connect(x.merge);
-    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.hcPre); x.hc[9].connect(x.pS); x.pM.connect(x.lcLo).connect(x.lcHi).connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
+    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.hcPre); x.hcOut.connect(x.pS); x.pM.connect(x.lcLo).connect(x.lcHi).connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
     x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
     x.limOut = g(1); x.limOut.connect(c.destination); x.limOut.connect(x.outAn);
     x.lim.connect(x.clipIn); x.clipIn.connect(x.clip).connect(x.clipOut).connect(x.limOut);
@@ -179,19 +178,30 @@
     applyHp(); applyHearing();
   }
 
-  // Load a headphone correction profile into the filter bank
+  // Exact RBJ "Audio EQ Cookbook" biquads (shelves honour Q, unlike native shelf nodes)
+  function rbj(type, fc, gain, q, sr) {
+    const A = Math.pow(10, gain / 40), w = 2 * Math.PI * fc / sr, cs = Math.cos(w), al = Math.sin(w) / (2 * q), sA = 2 * Math.sqrt(A) * al;
+    let b, a;
+    if (type === 'PK') { b = [1 + al * A, -2 * cs, 1 - al * A]; a = [1 + al / A, -2 * cs, 1 - al / A]; }
+    else if (type === 'LSC') { b = [A * ((A + 1) - (A - 1) * cs + sA), 2 * A * ((A - 1) - (A + 1) * cs), A * ((A + 1) - (A - 1) * cs - sA)];
+      a = [(A + 1) + (A - 1) * cs + sA, -2 * ((A - 1) + (A + 1) * cs), (A + 1) + (A - 1) * cs - sA]; }
+    else { b = [A * ((A + 1) + (A - 1) * cs + sA), -2 * A * ((A - 1) + (A + 1) * cs), A * ((A + 1) + (A - 1) * cs - sA)];
+      a = [(A + 1) - (A - 1) * cs + sA, 2 * ((A - 1) - (A + 1) * cs), (A + 1) - (A - 1) * cs - sA]; }
+    return { b: b.map(v => v / a[0]), a: a.map(v => v / a[0]) };
+  }
   let hpKey = '';
   function applyHp() {
     const h = cfg.hpEq, key = JSON.stringify(h || null);
     if (key === hpKey) return; hpKey = key;
-    const t = ctx.currentTime, fl = (h && h.filters) || [];
-    n.hcPre.gain.setTargetAtTime(h ? Math.pow(10, (h.preamp || 0) / 20) : 1, t, 0.1);
-    n.hc.forEach((b, i) => {
-      const q = fl[i];
-      if (!q) { b.type = 'peaking'; b.gain.setTargetAtTime(0, t, 0.1); return; }
-      b.type = q.type === 'LSC' ? 'lowshelf' : q.type === 'HSC' ? 'highshelf' : 'peaking';
-      b.frequency.setValueAtTime(q.fc, t); b.Q.setValueAtTime(q.q, t); b.gain.setTargetAtTime(q.gain, t, 0.1);
-    });
+    // Rebuild the correction chain: hcPre -> IIR filters -> hcOut
+    n.hcPre.disconnect(); n.hcNodes.forEach(x => x.disconnect()); n.hcNodes = [];
+    n.hcPre.gain.setTargetAtTime(h ? Math.pow(10, (h.preamp || 0) / 20) : 1, ctx.currentTime, 0.05);
+    let prev = n.hcPre;
+    for (const q of ((h && h.filters) || [])) {
+      const c = rbj(q.type, q.fc, q.gain, q.q, ctx.sampleRate);
+      try { const node = ctx.createIIRFilter(c.b, c.a); prev.connect(node); prev = node; n.hcNodes.push(node); } catch (e) { /* skip invalid filter */ }
+    }
+    prev.connect(n.hcOut);
   }
 
   // Hearing profile: { L:[8 dB], R:[8 dB] } boosts from the in-popup hearing test
@@ -286,7 +296,7 @@
   setInterval(() => n && n.tp && n.tp.port.postMessage(0), 100);
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     if (msg !== 'meters' || !n) return;
-    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb, genre: cfg.preset === 'smart' ? genre : null, feat });
+    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb, genre: cfg.preset === 'smart' ? genre : null, feat, nowPlaying, version: chrome.runtime.getManifest ? chrome.runtime.getManifest().version : '' });
   });
 
   function apply() {
@@ -313,6 +323,20 @@
     apply();
     clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); loudTick(); }, 250);
   }
+
+  // Per-artist memory: when the artist changes, load the preset saved for them
+  let lastArtist = '', nowPlaying = { artist: '', title: '' };
+  setInterval(() => {
+    const md = navigator.mediaSession && navigator.mediaSession.metadata;
+    const artist = md ? (md.artist || '').trim() : '', title = md ? (md.title || '') : '';
+    nowPlaying = { artist, title };
+    if (!artist || artist === lastArtist) return;
+    lastArtist = artist;
+    chrome.storage.sync.get({ artistMap: {}, presets: {} }, v => {
+      const name = v.artistMap[artist.toLowerCase()], snap = name && v.presets[name];
+      if (snap) chrome.storage.sync.set({ ...snap, activePreset: name });
+    });
+  }, 1000);
 
   const scan = () => document.querySelectorAll('video, audio').forEach(el => { if (!el.paused || el.readyState > 0) hook(el); });
   document.addEventListener('play', e => { if (e.target instanceof HTMLMediaElement) hook(e.target); }, true);
