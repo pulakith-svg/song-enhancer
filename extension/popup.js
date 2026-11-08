@@ -1,5 +1,5 @@
-const DEF = { v:3, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
-const MODES = [['auto','Auto'],['pure','Pure'],['cinema','Cinematic'],['epic','Epic'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
+const DEF = { v:4, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const MODES = [['smart','Smart'],['auto','Auto'],['pure','Pure'],['cinema','Cinematic'],['epic','Epic'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
 const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
 const HZ = ['31','62','125','250','500','1k','2k','4k','8k','16k'];
@@ -60,7 +60,7 @@ chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.e
 const pct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
 function meters(m) {
   if (!m) { $('state').textContent = 'No music playing'; return; }
-  $('state').textContent = m.on ? 'Processing' : 'Bypassed';
+  $('state').textContent = m.on ? (m.genre ? 'Smart · ' + m.genre : 'Processing') : 'Bypassed';
   $('mIn').style.width = pct(m.in) + '%'; $('tIn').textContent = m.in > -90 ? m.in.toFixed(1) + ' dB' : '—';
   $('mOut').style.width = pct(m.out) + '%'; $('tOut').textContent = m.out > -90 ? m.out.toFixed(1) + ' dB' : '—';
   $('mAgc').style.width = (50 + m.agc / 9 * 50) + '%'; $('tAgc').textContent = (m.agc > 0 ? '+' : '') + m.agc.toFixed(1) + ' dB';

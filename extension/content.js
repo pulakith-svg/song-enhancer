@@ -25,8 +25,8 @@
     laptop:     { lo:-4, lm:1.5,  hm:2,   hi:1,  hp:110, feed:0 },
     car:        { lo:-2, lm:-1.5, hm:1.5, hi:2,  hp:35,  feed:0 },
   };
-  const SETTINGS_VERSION = 3;
-  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const SETTINGS_VERSION = 4;
+  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -216,7 +216,43 @@
     for (let i = Math.floor(lo / bin); i <= Math.min(spec.length - 1, Math.ceil(hi / bin)); i++) { s += Math.pow(10, spec[i] / 10); c++; }
     return 10 * Math.log10(s / Math.max(c, 1) + 1e-20);
   }
+  // Smart mode: classify the music from live features and blend the matching engineer's treatment
+  const KEYS = ['bass','lowmid','mid','treble','comp','width','exciter','bassEnh','surround','reverb','sub'];
+  const LABELS = { cinema:'Cinematic', bass:'Bass-heavy', vocal:'Vocal', hifi:'Balanced', loud:'Energetic' };
+  let smart = { ...PRESETS.hifi, reverb:0, sub:0 }, feat = { crest:10, bass:9.5, pres:-5, air:-9, lra:5 }, hist = [], genre = 'Balanced';
+  const pbuf = new Float32Array(4096);
+  function smartTick() {
+    if (!n || !cfg.enabled || cfg.preset !== 'smart') return;
+    const spec = new Float32Array(n.analyser.frequencyBinCount); n.analyser.getFloatFrequencyData(spec);
+    const ref = bandDb(spec, 300, 2000); if (!isFinite(ref) || ref < -90) return;
+    n.analyser.getFloatTimeDomainData(pbuf); let pk = 0, ss = 0; for (const v of pbuf) { pk = Math.max(pk, Math.abs(v)); ss += v * v; }
+    const crest = 20 * Math.log10(pk + 1e-9) - 10 * Math.log10(ss / pbuf.length + 1e-12);
+    const e = (k, v) => { feat[k] += (v - feat[k]) * 0.03; }; // ~8 s memory
+    // Loudness range (LRA-style): spread of short-term loudness over the last ~12 s
+    const st = 10 * Math.log10(ss / pbuf.length + 1e-12);
+    if (st > -70) { hist.push(st); if (hist.length > 48) hist.shift(); }
+    if (hist.length > 8) { const s = [...hist].sort((a, b) => a - b); e('lra', s[Math.floor(s.length * 0.95) - 1] - s[Math.floor(s.length * 0.1)]); }
+    e('crest', crest); e('bass', bandDb(spec, 30, 120) - ref); e('pres', bandDb(spec, 2000, 5000) - ref); e('air', bandDb(spec, 8000, 16000) - ref);
+    // Scores (soft): which treatment fits this music?
+    const sc = {
+      // Thresholds calibrated against pink noise (bass≈+9.5, presence≈-5, air≈-9 dB re 300 Hz–2 kHz)
+      cinema: Math.max(0, feat.lra - 9) * 0.5,
+      bass:   Math.max(0, feat.bass - 14) * 0.5,
+      vocal:  Math.max(0, 5 - feat.bass) * 0.4 + Math.max(0, feat.pres + 3) * 0.6,
+      loud:   Math.max(0, 9.5 - feat.crest) * 0.8 * (feat.lra < 5 ? 1 : 0) + Math.max(0, feat.air + 6) * 0.3,
+      hifi:   1.5,
+    };
+    const tot = Object.values(sc).reduce((a, b) => a + b, 0);
+    const tgt = {}; for (const k of KEYS) tgt[k] = 0;
+    const W = { cinema: PRESETS.cinema, bass: { ...PRESETS.bass, sub: 3 }, vocal: PRESETS.vocal, loud: { ...PRESETS.loud, comp: 40 }, hifi: PRESETS.hifi };
+    for (const [g, w] of Object.entries(sc)) for (const k of KEYS) tgt[k] += ((W[g][k] || 0) * w) / tot;
+    for (const k of KEYS) smart[k] += (tgt[k] - smart[k]) * 0.02; // slow, seamless transitions
+    genre = LABELS[Object.entries(sc).sort((a, b) => b[1] - a[1])[0][0]];
+    set(smart);
+  }
+
   function adapt() {
+    smartTick();
     if (!n || !cfg.enabled || cfg.preset !== 'auto') return;
     const spec = new Float32Array(n.analyser.frequencyBinCount); n.analyser.getFloatFrequencyData(spec);
     const ref = bandDb(spec, 800, 1500); if (!isFinite(ref) || ref < -90) return; // silence
@@ -250,7 +286,7 @@
   setInterval(() => n && n.tp && n.tp.port.postMessage(0), 100);
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     if (msg !== 'meters' || !n) return;
-    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb });
+    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb, genre: cfg.preset === 'smart' ? genre : null, feat });
   });
 
   function apply() {
@@ -259,7 +295,7 @@
     n.bypass.gain.setTargetAtTime(cfg.enabled ? 0 : (cfg.matchAB ? matchGain : 1), t, 0.05);
     n.wetIn.gain.setTargetAtTime(cfg.enabled ? 1 : 0, t, 0.05);
     if (!cfg.enabled) return;
-    if (PRESETS[cfg.preset]) set(PRESETS[cfg.preset]); else set(last || auto);
+    if (PRESETS[cfg.preset]) set(PRESETS[cfg.preset]); else set(cfg.preset === 'smart' ? smart : (last || auto));
   }
 
   function hook(el) {
