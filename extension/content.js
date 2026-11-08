@@ -1,52 +1,73 @@
-// Song Enhancer Hi-Fi: routes the page's <video> audio through an enhancement chain.
+// Song Enhancer Hi-Fi: routes the page's <video>/<audio> through an enhancement chain.
 (() => {
+  // Mode settings: EQ in dB, comp/width/exciter/bassEnh/surround in %
   const PRESETS = {
     auto:  null, // adaptive
-    bass:  { bass:6, lowmid:-1, mid:0, treble:1, comp:40, width:105, exciter:5 },
-    vocal: { bass:-1, lowmid:-3, mid:4, treble:2.5, comp:45, width:100, exciter:25 },
-    warm:  { bass:3, lowmid:2, mid:-1.5, treble:-3, comp:30, width:90, exciter:0 },
-    loud:  { bass:3, lowmid:-1, mid:2, treble:3, comp:75, width:120, exciter:20 },
+    bass:  { bass:10, lowmid:-2, mid:0,  treble:2,  comp:50, width:110, exciter:10, bassEnh:70, surround:15 },
+    vocal: { bass:-1, lowmid:-4, mid:7,  treble:4,  comp:55, width:100, exciter:40, bassEnh:10, surround:10 },
+    warm:  { bass:5,  lowmid:3,  mid:-2, treble:-4, comp:40, width:95,  exciter:0,  bassEnh:35, surround:20 },
+    loud:  { bass:6,  lowmid:-2, mid:4,  treble:5,  comp:90, width:130, exciter:35, bassEnh:50, surround:25 },
+    hifi:  { bass:4,  lowmid:-2, mid:2,  treble:4,  comp:45, width:125, exciter:30, bassEnh:35, surround:30 },
   };
-  let cfg = { enabled: true, preset: 'auto', intensity: 70 };
-  let ctx, n, hooked = new WeakSet(), timer;
+  const DEF = { enabled:true, preset:'auto', intensity:100, uBass:0, uTreble:0, uVocal:0, uWidth:0, uSurround:0, uBoost:0 };
+  let cfg = { ...DEF };
+  let ctx, n, hooked = new WeakSet(), timer, last = null;
 
   function build(c) {
     const x = {}, f = (type, freq, q) => { const b = c.createBiquadFilter(); b.type = type; b.frequency.value = freq; if (q) b.Q.value = q; return b; };
     const g = v => { const k = c.createGain(); k.gain.value = v; return k; };
+    const shaper = drive => { const s = c.createWaveShaper(); s.oversample = '4x'; const cv = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) { const v = i / 511.5 - 1; cv[i] = Math.tanh(drive * v) / Math.tanh(drive); } s.curve = cv; return s; };
     x.input = g(1); x.bypass = g(0); x.wetIn = g(1);
-    x.hp = f('highpass', 25, 0.7); x.bass = f('lowshelf', 80); x.lowmid = f('peaking', 400, 1);
-    x.mid = f('peaking', 2500, 0.9); x.treble = f('highshelf', 10000);
-    x.exHp = f('highpass', 3500); x.exShape = c.createWaveShaper(); x.exShape.oversample = '4x';
-    const cv = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const v = i / 511.5 - 1; cv[i] = Math.tanh(3 * v) / Math.tanh(3); } x.exShape.curve = cv;
-    x.exGain = g(0);
-    x.comp = c.createDynamicsCompressor(); x.comp.knee.value = 10; x.comp.attack.value = 0.01; x.comp.release.value = 0.2;
+    x.hp = f('highpass', 25, 0.7);
+    x.bass = f('lowshelf', 90); x.lowmid = f('peaking', 350, 1); x.mid = f('peaking', 2800, 0.8); x.treble = f('highshelf', 9000);
+    x.uBass = f('lowshelf', 70); x.uVocal = f('peaking', 2200, 0.7); x.uTreble = f('highshelf', 7000);
+    // Harmonic exciter (detail)
+    x.exHp = f('highpass', 3500); x.exShape = shaper(4); x.exGain = g(0);
+    // Bass enhancer: adds harmonics of the lows so bass sounds deeper on any speaker
+    x.beLp = f('lowpass', 120); x.beShape = shaper(6); x.beLp2 = f('lowpass', 350); x.beGain = g(0);
+    x.comp = c.createDynamicsCompressor(); x.comp.knee.value = 8; x.comp.attack.value = 0.008; x.comp.release.value = 0.18;
     x.makeup = g(1);
-    // mid/side width
+    // Mid/side: width + 3D surround (delayed side signal)
     x.split = c.createChannelSplitter(2); x.merge = c.createChannelMerger(2);
     x.m = g(0.5); x.sL = g(0.5); x.sR = g(-0.5); x.side = g(1); x.oL = g(1); x.oR = g(1); x.inv = g(-1);
+    x.sDelay = c.createDelay(0.05); x.sDelay.delayTime.value = 0.014; x.sSur = g(0); x.sSurHp = f('highpass', 300);
     x.split.connect(x.m, 0); x.split.connect(x.m, 1); x.split.connect(x.sL, 0); x.split.connect(x.sR, 1);
-    x.sL.connect(x.side); x.sR.connect(x.side); x.m.connect(x.oL); x.m.connect(x.oR);
+    x.sL.connect(x.side); x.sR.connect(x.side);
+    x.sL.connect(x.sSurHp); x.sR.connect(x.sSurHp); x.sSurHp.connect(x.sDelay).connect(x.sSur); x.sSur.connect(x.side);
+    x.m.connect(x.oL); x.m.connect(x.oR);
     x.side.connect(x.oL); x.side.connect(x.inv); x.inv.connect(x.oR);
     x.oL.connect(x.merge, 0, 0); x.oR.connect(x.merge, 0, 1);
-    x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.1;
+    x.boost = g(1);
+    x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.08;
     x.analyser = c.createAnalyser(); x.analyser.fftSize = 4096; x.analyser.smoothingTimeConstant = 0.85;
     x.input.connect(x.analyser);
     x.input.connect(x.bypass).connect(c.destination);
-    x.input.connect(x.wetIn).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble).connect(x.comp);
-    x.treble.connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
-    x.comp.connect(x.makeup).connect(x.split); x.merge.connect(x.lim).connect(c.destination);
+    x.input.connect(x.wetIn).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble)
+      .connect(x.uBass).connect(x.uVocal).connect(x.uTreble).connect(x.comp);
+    x.uTreble.connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
+    x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
+    x.comp.connect(x.makeup).connect(x.split);
+    x.merge.connect(x.boost).connect(x.lim).connect(c.destination);
     return x;
   }
 
   function set(s) {
-    const t = ctx.currentTime, k = cfg.intensity / 100, ramp = (p, v) => p.setTargetAtTime(v, t, 0.3);
+    last = s;
+    const t = ctx.currentTime, k = cfg.intensity / 100, ramp = (p, v) => p.setTargetAtTime(v, t, 0.25);
     ramp(n.bass.gain, s.bass * k); ramp(n.lowmid.gain, s.lowmid * k); ramp(n.mid.gain, s.mid * k); ramp(n.treble.gain, s.treble * k);
-    const c = s.comp / 100 * k; ramp(n.comp.threshold, -c * 30); ramp(n.comp.ratio, 1 + c * 7); ramp(n.makeup.gain, Math.pow(10, c * 30 * 0.3 / 20));
-    ramp(n.side.gain, 1 + (s.width / 100 - 1) * k); ramp(n.exGain.gain, s.exciter / 100 * 0.35 * k);
+    ramp(n.uBass.gain, cfg.uBass); ramp(n.uVocal.gain, cfg.uVocal); ramp(n.uTreble.gain, cfg.uTreble);
+    const c = Math.min(1, s.comp / 100 * k);
+    ramp(n.comp.threshold, -c * 32); ramp(n.comp.ratio, 1 + c * 9); ramp(n.makeup.gain, Math.pow(10, c * 32 * 0.32 / 20));
+    ramp(n.side.gain, Math.max(0, 1 + (s.width / 100 - 1) * k + cfg.uWidth / 100));
+    ramp(n.sSur.gain, Math.min(1.2, (s.surround / 100 * k + cfg.uSurround / 100) * 0.9));
+    ramp(n.exGain.gain, s.exciter / 100 * 0.45 * k);
+    ramp(n.beGain.gain, s.bassEnh / 100 * 0.6 * k);
+    ramp(n.boost.gain, Math.pow(10, cfg.uBoost / 20));
   }
 
-  // Adaptive auto mode: measure the live spectrum and steer EQ toward a balanced target.
-  const auto = { bass:0, lowmid:0, mid:0, treble:0, comp:35, width:112, exciter:15 };
+  // Adaptive auto mode: measure the live spectrum and steer EQ toward a rich hi-fi target.
+  const auto = { bass:3, lowmid:-1, mid:1, treble:3, comp:50, width:125, exciter:30, bassEnh:40, surround:25 };
   function bandDb(spec, lo, hi) {
     const bin = ctx.sampleRate / 2 / spec.length; let s = 0, c = 0;
     for (let i = Math.floor(lo / bin); i <= Math.min(spec.length - 1, Math.ceil(hi / bin)); i++) { s += Math.pow(10, spec[i] / 10); c++; }
@@ -56,12 +77,14 @@
     if (!n || !cfg.enabled || cfg.preset !== 'auto') return;
     const spec = new Float32Array(n.analyser.frequencyBinCount); n.analyser.getFloatFrequencyData(spec);
     const ref = bandDb(spec, 800, 1500); if (!isFinite(ref) || ref < -90) return; // silence
-    const target = { bass: [40, 150, 8], lowmid: [250, 600, 3], mid: [2000, 3500, -6], treble: [8000, 14000, -16] };
+    // Targets slightly brighter and bassier than flat: the "hi-fi smile"
+    const target = { bass: [40, 150, 11], lowmid: [250, 600, 2], mid: [2000, 3500, -5], treble: [8000, 14000, -13] };
     for (const [k, [lo, hi, tgt]] of Object.entries(target)) {
-      const want = Math.max(-5, Math.min(5, (tgt - (bandDb(spec, lo, hi) - ref)) * 0.5));
-      auto[k] += (want - auto[k]) * 0.08; // slow, smooth drift
+      const want = Math.max(-8, Math.min(9, 1.5 + (tgt - (bandDb(spec, lo, hi) - ref)) * 0.7));
+      auto[k] += (want - auto[k]) * 0.1;
     }
-    auto.exciter = auto.treble > 2 ? 28 : 15;
+    auto.exciter = auto.treble > 4 ? 45 : 30;
+    auto.bassEnh = auto.bass > 5 ? 60 : 40;
     set(auto);
   }
 
@@ -70,12 +93,13 @@
     const t = ctx.currentTime;
     n.bypass.gain.setTargetAtTime(cfg.enabled ? 0 : 1, t, 0.05);
     n.wetIn.gain.setTargetAtTime(cfg.enabled ? 1 : 0, t, 0.05);
-    if (cfg.enabled && PRESETS[cfg.preset]) set(PRESETS[cfg.preset]);
+    if (!cfg.enabled) return;
+    if (PRESETS[cfg.preset]) set(PRESETS[cfg.preset]); else set(last || auto);
   }
 
   function hook(el) {
     if (hooked.has(el)) return;
-    // Only hook streams we can legally process; cross-origin files would output silence.
+    // Only hook streams we can process; cross-origin files would output silence.
     const src = el.currentSrc || el.src || '';
     if (!src) return;
     if (!src.startsWith('blob:') && new URL(src, location.href).origin !== location.origin && !el.crossOrigin) return;
@@ -93,6 +117,6 @@
   document.addEventListener('play', e => { if (e.target instanceof HTMLMediaElement) hook(e.target); }, true);
   new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
 
-  chrome.storage.sync.get(cfg, v => { cfg = v; apply(); scan(); });
+  chrome.storage.sync.get(DEF, v => { cfg = v; apply(); scan(); });
   chrome.storage.onChanged.addListener(ch => { for (const k in ch) cfg[k] = ch[k].newValue; apply(); });
 })();
