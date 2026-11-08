@@ -1,6 +1,6 @@
 // Lookahead true-peak brickwall limiter (AudioWorklet).
 class TPLimiter extends AudioWorkletProcessor {
-  static get parameterDescriptors() { return [{ name: 'ceiling', defaultValue: -1, minValue: -12, maxValue: 0 }, { name: 'release', defaultValue: 0.08, minValue: 0.01, maxValue: 1 }]; }
+  static get parameterDescriptors() { return [{ name: 'ceiling', defaultValue: -1, minValue: -12, maxValue: 0 }, { name: 'release', defaultValue: 0.25, minValue: 0.01, maxValue: 1 }]; }
   constructor() {
     super();
     this.la = Math.round(sampleRate * 0.005); // 5 ms lookahead
@@ -13,7 +13,7 @@ class TPLimiter extends AudioWorkletProcessor {
     const inp = inputs[0], out = outputs[0];
     if (!inp.length) return true;
     const ceil = Math.pow(10, p.ceiling[0] / 20), rel = Math.exp(-1 / (p.release[0] * sampleRate));
-    const atk = Math.exp(-1 / (0.0015 * sampleRate)), N = this.la + 1, chs = Math.min(2, inp.length);
+    const atk = Math.exp(-1 / (0.002 * sampleRate)), N = this.la + 1, chs = Math.min(2, inp.length);
     let minG = 1;
     for (let i = 0; i < inp[0].length; i++) {
       // Inter-sample (true) peak estimate: sample plus midpoint between samples

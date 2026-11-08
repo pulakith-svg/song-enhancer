@@ -3,11 +3,12 @@
   // Mode settings: EQ in dB, comp/width/exciter/bassEnh/surround in %
   const PRESETS = {
     auto:  null, // adaptive
-    bass:  { bass:10, lowmid:-2, mid:0,  treble:2,  comp:50, width:110, exciter:10, bassEnh:70, surround:15 },
-    vocal: { bass:-1, lowmid:-4, mid:7,  treble:4,  comp:55, width:100, exciter:40, bassEnh:10, surround:10 },
-    warm:  { bass:5,  lowmid:3,  mid:-2, treble:-4, comp:40, width:95,  exciter:0,  bassEnh:35, surround:20 },
-    loud:  { bass:6,  lowmid:-2, mid:4,  treble:5,  comp:90, width:130, exciter:35, bassEnh:50, surround:25 },
-    hifi:  { bass:4,  lowmid:-2, mid:2,  treble:4,  comp:45, width:125, exciter:30, bassEnh:35, surround:30 },
+    pure:  { bass:0,  lowmid:0,  mid:0,  treble:0,  comp:0,  width:100, exciter:0,  bassEnh:0,  surround:0 },
+    bass:  { bass:6,  lowmid:-1, mid:0,  treble:1,  comp:30, width:105, exciter:0,  bassEnh:20, surround:0 },
+    vocal: { bass:-1, lowmid:-2, mid:3.5,treble:2,  comp:30, width:100, exciter:10, bassEnh:0,  surround:0 },
+    warm:  { bass:3,  lowmid:1.5,mid:-1, treble:-2.5,comp:25, width:100, exciter:0,  bassEnh:10, surround:0 },
+    loud:  { bass:3,  lowmid:-1, mid:2,  treble:3,  comp:60, width:115, exciter:15, bassEnh:15, surround:0 },
+    hifi:  { bass:2.5,lowmid:-1, mid:1,  treble:2.5,comp:25, width:112, exciter:10, bassEnh:10, surround:0 },
   };
   const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
   const STYLES = { // multiband compressor character
@@ -17,12 +18,13 @@
   };
   const XOVER = [150, 800, 5000];
   const DEVICES = { // output tuning: tilt EQ + crossfeed (headphones)
-    headphones: { lo:0,  lm:0,    hm:0,   hi:0,  hp:20,  feed:0.22 },
+    headphones: { lo:0,  lm:0,    hm:0,   hi:0,  hp:20,  feed:0.12 },
     speakers:   { lo:1,  lm:0,    hm:0,   hi:0.5, hp:20, feed:0 },
     laptop:     { lo:-4, lm:1.5,  hm:2,   hi:1,  hp:110, feed:0 },
     car:        { lo:-2, lm:-1.5, hm:1.5, hi:2,  hp:35,  feed:0 },
   };
-  const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const SETTINGS_VERSION = 3;
+  const DEF = { v:SETTINGS_VERSION, enabled:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -38,9 +40,9 @@
     x.geq = BANDS.map((fr, i) => f(i === 0 ? 'lowshelf' : i === BANDS.length - 1 ? 'highshelf' : 'peaking', fr, 1.4));
     for (let i = 0; i < x.geq.length - 1; i++) x.geq[i].connect(x.geq[i + 1]);
     // Harmonic exciter (detail)
-    x.exHp = f('highpass', 3500); x.exShape = shaper(4); x.exGain = g(0);
+    x.exHp = f('highpass', 4000); x.exShape = shaper(1.5); x.exPost = f('highpass', 6000); x.exGain = g(0);
     // Bass enhancer: adds harmonics of the lows so bass sounds deeper on any speaker
-    x.beLp = f('lowpass', 120); x.beShape = shaper(6); x.beLp2 = f('lowpass', 350); x.beGain = g(0);
+    x.beLp = f('lowpass', 100); x.beShape = shaper(2); x.beLp2 = f('lowpass', 250); x.beGain = g(0);
     // Input AGC (slow loudness rider)
     x.agc = g(1);
     // 4-band multiband compressor: Linkwitz-Riley style crossovers (two cascaded 2nd-order filters)
@@ -65,7 +67,7 @@
     // Soft clipper (transparent until peaks), before the final limiter
     x.clip = c.createWaveShaper(); x.clip.oversample = '4x';
     { const cv = new Float32Array(2048); for (let i = 0; i < 2048; i++) { const v = i / 1023.5 - 1, a = Math.abs(v);
-        cv[i] = Math.sign(v) * (a <= 0.7 ? a : 0.7 + 0.3 * Math.tanh((a - 0.7) / 0.3)); } x.clip.curve = cv; } // unity below 0.7, smooth knee above
+        cv[i] = Math.sign(v) * (a <= 0.92 ? a : 0.92 + 0.08 * Math.tanh((a - 0.92) / 0.08)); } x.clip.curve = cv; } // unity below 0.7, smooth knee above
     x.clipIn = g(1); x.clipOut = g(1);
     // Mid/side: width + 3D surround (delayed side signal)
     x.split = c.createChannelSplitter(2); x.merge = c.createChannelMerger(2);
@@ -86,7 +88,7 @@
     x.xs.connect(x.fL, 0); x.fL.connect(x.fdL).connect(x.fgL).connect(x.xm, 0, 1);
     x.xs.connect(x.fR, 1); x.fR.connect(x.fdR).connect(x.fgR).connect(x.xm, 0, 0);
     x.boost = g(1);
-    x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.08;
+    x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.25;
     x.analyser = c.createAnalyser(); x.analyser.fftSize = 4096; x.analyser.smoothingTimeConstant = 0.85;
     x.input.connect(x.analyser);
     // ITU-R BS.1770 K-weighting for loudness (LUFS-style) measurement
@@ -96,19 +98,20 @@
     x.input.connect(x.bypass).connect(c.destination);
     x.input.connect(x.wetIn).connect(x.agc).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble)
       .connect(x.geq[0]); x.geq[x.geq.length - 1].connect(x.comp);
-    x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
+    x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exPost).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
     x.mbOut.connect(x.makeup).connect(x.split);
-    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.xs); x.xm.connect(x.boost).connect(x.clipIn).connect(x.clip).connect(x.clipOut).connect(x.lim);
+    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
     x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
     x.limOut = g(1); x.limOut.connect(c.destination); x.limOut.connect(x.outAn);
-    x.lim.connect(x.limOut);
+    x.lim.connect(x.clipIn); x.clipIn.connect(x.clip).connect(x.clipOut).connect(x.limOut);
     x.tp = null;
     try {
       c.audioWorklet.addModule(chrome.runtime.getURL('limiter.js')).then(() => {
         const tp = new AudioWorkletNode(c, 'tp-limiter', { outputChannelCount: [2] });
         tp.port.onmessage = e => { x.tpRed = e.data; };
-        x.clipOut.disconnect(); x.clipOut.connect(tp).connect(x.limOut); x.tp = tp;
+        x.boost.disconnect(); x.boost.connect(tp).connect(x.clipIn); x.tp = tp;
+        tp.parameters.get('release').value = 0.25;
       }).catch(e => console.info('Song Enhancer: using standard limiter', e));
     } catch (e) { /* worklet unavailable: native limiter stays */ }
     return x;
@@ -128,9 +131,9 @@
       ramp(b.out.gain, Math.pow(10, Math.min(40, c * 30 * bandW[i]) * 0.2 / 20));
     });
     ramp(n.side.gain, Math.max(0, 1 + (s.width / 100 - 1) * k + cfg.uWidth / 100));
-    ramp(n.sSur.gain, Math.min(1.2, (s.surround / 100 * k + cfg.uSurround / 100) * 0.9));
-    ramp(n.exGain.gain, s.exciter / 100 * 0.45 * k);
-    ramp(n.beGain.gain, s.bassEnh / 100 * 0.6 * k);
+    ramp(n.sSur.gain, Math.min(0.5, (s.surround / 100 * k + cfg.uSurround / 100) * 0.4));
+    ramp(n.exGain.gain, s.exciter / 100 * 0.12 * k);
+    ramp(n.beGain.gain, s.bassEnh / 100 * 0.15 * k);
     ramp(n.boost.gain, Math.pow(10, cfg.uBoost / 20));
     const d = DEVICES[cfg.device] || DEVICES.headphones;
     ramp(n.dHp.frequency, d.hp); ramp(n.dLo.gain, d.lo); ramp(n.dLm.gain, d.lm); ramp(n.dHm.gain, d.hm); ramp(n.dHi.gain, d.hi);
@@ -138,7 +141,7 @@
   }
 
   // Adaptive auto mode: measure the live spectrum and steer EQ toward a rich hi-fi target.
-  const auto = { bass:3, lowmid:-1, mid:1, treble:3, comp:50, width:125, exciter:30, bassEnh:40, surround:25 };
+  const auto = { bass:1, lowmid:0, mid:0.5, treble:1, comp:25, width:110, exciter:8, bassEnh:8, surround:0 };
   function bandDb(spec, lo, hi) {
     const bin = ctx.sampleRate / 2 / spec.length; let s = 0, c = 0;
     for (let i = Math.floor(lo / bin); i <= Math.min(spec.length - 1, Math.ceil(hi / bin)); i++) { s += Math.pow(10, spec[i] / 10); c++; }
@@ -151,11 +154,11 @@
     // Targets slightly brighter and bassier than flat: the "hi-fi smile"
     const target = { bass: [40, 150, 11], lowmid: [250, 600, 2], mid: [2000, 3500, -5], treble: [8000, 14000, -13] };
     for (const [k, [lo, hi, tgt]] of Object.entries(target)) {
-      const want = Math.max(-8, Math.min(9, 1.5 + (tgt - (bandDb(spec, lo, hi) - ref)) * 0.7));
-      auto[k] += (want - auto[k]) * 0.1;
+      const want = Math.max(-3, Math.min(3.5, 0.5 + (tgt - (bandDb(spec, lo, hi) - ref)) * 0.3));
+      auto[k] += (want - auto[k]) * 0.02; // slow and subtle
     }
-    auto.exciter = auto.treble > 4 ? 45 : 30;
-    auto.bassEnh = auto.bass > 5 ? 60 : 40;
+    auto.exciter = auto.treble > 2 ? 12 : 8;
+    auto.bassEnh = auto.bass > 2 ? 12 : 8;
     set(auto);
   }
 
@@ -168,7 +171,7 @@
     inDb = rmsDb(n.kAn) - 0.691; // approx. LUFS (momentary)
     if (cfg.enabled && cfg.agc && inDb > -50) {
       const want = Math.max(-9, Math.min(9, -16 - inDb)); // target -16 LUFS in
-      agcDb += Math.max(-0.4, Math.min(0.4, want - agcDb)); // slow ride
+      agcDb += Math.max(-0.1, Math.min(0.1, want - agcDb)); // slow ride
     } else if (!cfg.agc) agcDb = 0;
     n.agc.gain.setTargetAtTime(Math.pow(10, agcDb / 20), ctx.currentTime, 0.5);
   }
@@ -207,6 +210,8 @@
   document.addEventListener('play', e => { if (e.target instanceof HTMLMediaElement) hook(e.target); }, true);
   new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
 
-  chrome.storage.sync.get(DEF, v => { cfg = v; apply(); scan(); });
+  chrome.storage.sync.get(DEF, v => {
+    if (v.v !== SETTINGS_VERSION) { v = { ...DEF, eq: v.eq || DEF.eq }; chrome.storage.sync.set(v); } // reset to new gentle defaults
+    cfg = v; apply(); scan(); });
   chrome.storage.onChanged.addListener(ch => { for (const k in ch) cfg[k] = ch[k].newValue; apply(); });
 })();
