@@ -28,6 +28,16 @@
   .foot { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:10px; }
   .foot button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:4px 10px; cursor:pointer; font:inherit; }
   .foot button:hover { color:var(--fg); }
+  .meters { display:grid; grid-template-columns:auto 1fr auto; gap:5px 8px; align-items:center; font-size:10px; color:var(--muted); }
+  .meter { height:6px; background:#0b0d10; border-radius:3px; overflow:hidden; border:1px solid var(--line); }
+  .meter i { display:block; height:100%; width:0; background:linear-gradient(90deg,#3ddc84,var(--amber) 75%,#ff5c5c); transition:width .1s linear; }
+  .meter.gr i { background:#ff8a3d; margin-left:auto; }
+  .meters b { font-weight:500; color:var(--fg); font-variant-numeric:tabular-nums; min-width:44px; text-align:right; }
+  .grrow { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:8px; text-align:center; font-size:9px; color:var(--muted); }
+  .grbar { height:40px; background:#0b0d10; border:1px solid var(--line); border-radius:3px; position:relative; overflow:hidden; }
+  .grbar i { position:absolute; top:0; left:0; right:0; height:0; background:#ff8a3d; transition:height .1s linear; }
+  .tog { display:flex; align-items:center; justify-content:space-between; margin-top:10px; font-size:11px; color:var(--muted); }
+  .tog input { accent-color:var(--amber); }
   body.disabled .panel { opacity:.45; }
   button:focus-visible, input:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 </style></head><body>
@@ -36,6 +46,23 @@
     <button id="power" title="Turn enhancement on/off">⏻</button>
   </header>
   <div class="panel"><div class="title">Sound mode</div><div class="chips" id="modes"></div></div>
+  <div class="panel">
+    <div class="title"><span>Signal processor</span><span id="state">—</span></div>
+    <div class="chips" id="styles"></div>
+    <div class="tog"><label for="agc">Input AGC (auto level)</label><input type="checkbox" id="agc"></div>
+    <div class="meters" style="margin-top:10px">
+      <span>IN</span><div class="meter"><i id="mIn"></i></div><b id="tIn">—</b>
+      <span>OUT</span><div class="meter"><i id="mOut"></i></div><b id="tOut">—</b>
+      <span>AGC</span><div class="meter"><i id="mAgc"></i></div><b id="tAgc">—</b>
+    </div>
+    <div class="grrow">
+      <div><div class="grbar"><i id="g0"></i></div>LOW</div>
+      <div><div class="grbar"><i id="g1"></i></div>L-MID</div>
+      <div><div class="grbar"><i id="g2"></i></div>H-MID</div>
+      <div><div class="grbar"><i id="g3"></i></div>HIGH</div>
+      <div><div class="grbar"><i id="g4"></i></div>LIMIT</div>
+    </div>
+  </div>
   <div class="panel">
     <div class="title"><span>10-band equalizer</span><span id="eqname"></span></div>
     <div class="chips" id="eqpresets" style="margin-bottom:10px"></div>

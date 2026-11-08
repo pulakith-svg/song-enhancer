@@ -20,4 +20,10 @@ The `extension/` folder is a Chrome/Edge extension that enhances YouTube Music (
 
 Click the extension icon to turn enhancement on/off, choose a mode (Auto Enhance adapts to each song in real time), set the effect intensity (up to 150%), and fine-tune with a pro 10-band graphic equalizer (31 Hz–16 kHz, with Flat, V-Shape, Bass, Vocal, Bright and Night presets) plus Stereo width, 3D surround and Volume boost.
 
+**Signal chain (like a broadcast/studio processor)**
+
+Input AGC (auto level) → subsonic filter → adaptive tone EQ → 10-band graphic EQ → bass enhancer + harmonic exciter → 4-band multiband compressor (crossovers at 150 Hz, 800 Hz, 5 kHz) → stereo width + 3D surround → volume boost → soft clipper → brickwall limiter.
+
+Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), **Club** (maximum punch). The popup shows live IN/OUT/AGC meters and gain reduction for each band and the limiter.
+
 **Spotify:** not supported. Spotify encrypts its audio (DRM), so browsers and extensions only receive silence. Use Spotify's built-in equalizer (Settings → Playback → Equalizer) or a system-wide equalizer such as Equalizer APO (Windows) or eqMac (Mac).

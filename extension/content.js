@@ -10,7 +10,13 @@
     hifi:  { bass:4,  lowmid:-2, mid:2,  treble:4,  comp:45, width:125, exciter:30, bassEnh:35, surround:30 },
   };
   const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-  const DEF = { enabled:true, preset:'auto', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const STYLES = { // multiband compressor character
+    gentle:    { amt:0.6, atk:[0.03,0.02,0.01,0.005], rel:[0.4,0.3,0.25,0.2] },
+    broadcast: { amt:1.0, atk:[0.02,0.012,0.006,0.003], rel:[0.3,0.2,0.15,0.1] },
+    club:      { amt:1.35, atk:[0.01,0.008,0.004,0.002], rel:[0.2,0.15,0.1,0.08] },
+  };
+  const XOVER = [150, 800, 5000];
+  const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -29,8 +35,28 @@
     x.exHp = f('highpass', 3500); x.exShape = shaper(4); x.exGain = g(0);
     // Bass enhancer: adds harmonics of the lows so bass sounds deeper on any speaker
     x.beLp = f('lowpass', 120); x.beShape = shaper(6); x.beLp2 = f('lowpass', 350); x.beGain = g(0);
-    x.comp = c.createDynamicsCompressor(); x.comp.knee.value = 8; x.comp.attack.value = 0.008; x.comp.release.value = 0.18;
+    // Input AGC (slow loudness rider)
+    x.agc = g(1);
+    // 4-band multiband compressor: Linkwitz-Riley style crossovers (two cascaded 2nd-order filters)
+    x.comp = g(1); // summing bus feeding the crossover
+    const lr = (type, fr) => { const a = f(type, fr, 0.707), b = f(type, fr, 0.707); a.connect(b); return [a, b]; };
+    x.mbOut = g(1); x.bands = [];
+    for (let i = 0; i < 4; i++) {
+      const chain = [];
+      if (i > 0) chain.push(...lr('highpass', XOVER[i - 1]));
+      if (i < 3) chain.push(...lr('lowpass', XOVER[i]));
+      for (let j = 1; j + 1 < chain.length; j += 2) chain[j].connect(chain[j + 1]); // link LR pairs in series
+      const cmp = c.createDynamicsCompressor(); cmp.knee.value = 6;
+      const out = g(1);
+      x.comp.connect(chain[0]); chain[chain.length - 1].connect(cmp).connect(out).connect(x.mbOut);
+      x.bands.push({ cmp, out });
+    }
     x.makeup = g(1);
+    // Soft clipper (transparent until peaks), before the final limiter
+    x.clip = c.createWaveShaper(); x.clip.oversample = '4x';
+    { const cv = new Float32Array(2048); for (let i = 0; i < 2048; i++) { const v = i / 1023.5 - 1, a = Math.abs(v);
+        cv[i] = Math.sign(v) * (a <= 0.7 ? a : 0.7 + 0.3 * Math.tanh((a - 0.7) / 0.3)); } x.clip.curve = cv; } // unity below 0.7, smooth knee above
+    x.clipIn = g(1); x.clipOut = g(1);
     // Mid/side: width + 3D surround (delayed side signal)
     x.split = c.createChannelSplitter(2); x.merge = c.createChannelMerger(2);
     x.m = g(0.5); x.sL = g(0.5); x.sR = g(-0.5); x.side = g(1); x.oL = g(1); x.oR = g(1); x.inv = g(-1);
@@ -46,12 +72,14 @@
     x.analyser = c.createAnalyser(); x.analyser.fftSize = 4096; x.analyser.smoothingTimeConstant = 0.85;
     x.input.connect(x.analyser);
     x.input.connect(x.bypass).connect(c.destination);
-    x.input.connect(x.wetIn).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble)
+    x.input.connect(x.wetIn).connect(x.agc).connect(x.hp).connect(x.bass).connect(x.lowmid).connect(x.mid).connect(x.treble)
       .connect(x.geq[0]); x.geq[x.geq.length - 1].connect(x.comp);
     x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
-    x.comp.connect(x.makeup).connect(x.split);
-    x.merge.connect(x.boost).connect(x.lim).connect(c.destination);
+    x.mbOut.connect(x.makeup).connect(x.split);
+    x.merge.connect(x.boost).connect(x.clipIn).connect(x.clip).connect(x.clipOut).connect(x.lim);
+    x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
+    x.lim.connect(c.destination); x.lim.connect(x.outAn);
     return x;
   }
 
@@ -60,8 +88,14 @@
     const t = ctx.currentTime, k = cfg.intensity / 100, ramp = (p, v) => p.setTargetAtTime(v, t, 0.25);
     ramp(n.bass.gain, s.bass * k); ramp(n.lowmid.gain, s.lowmid * k); ramp(n.mid.gain, s.mid * k); ramp(n.treble.gain, s.treble * k);
     n.geq.forEach((b, i) => ramp(b.gain, (cfg.eq && cfg.eq[i]) || 0));
-    const c = Math.min(1, s.comp / 100 * k);
-    ramp(n.comp.threshold, -c * 32); ramp(n.comp.ratio, 1 + c * 9); ramp(n.makeup.gain, Math.pow(10, c * 32 * 0.32 / 20));
+    const st = STYLES[cfg.style] || STYLES.broadcast;
+    const c = Math.min(1.4, s.comp / 100 * k * st.amt);
+    const bandW = [1.0, 0.8, 0.9, 0.7]; // bass gets most control, highs least
+    n.bands.forEach((b, i) => {
+      ramp(b.cmp.threshold, -Math.min(40, c * 30 * bandW[i])); ramp(b.cmp.ratio, 1 + c * 6 * bandW[i]);
+      b.cmp.attack.setValueAtTime(st.atk[i], t); b.cmp.release.setValueAtTime(st.rel[i], t);
+      ramp(b.out.gain, Math.pow(10, Math.min(40, c * 30 * bandW[i]) * 0.2 / 20));
+    });
     ramp(n.side.gain, Math.max(0, 1 + (s.width / 100 - 1) * k + cfg.uWidth / 100));
     ramp(n.sSur.gain, Math.min(1.2, (s.surround / 100 * k + cfg.uSurround / 100) * 0.9));
     ramp(n.exGain.gain, s.exciter / 100 * 0.45 * k);
@@ -91,6 +125,24 @@
     set(auto);
   }
 
+  // AGC: ride the input toward a consistent loudness
+  let agcDb = 0, inDb = -100;
+  const tbuf = new Float32Array(2048);
+  function rmsDb(an) { an.getFloatTimeDomainData(tbuf); let s = 0; for (const v of tbuf) s += v * v; return 10 * Math.log10(s / tbuf.length + 1e-12); }
+  function agcTick() {
+    if (!n) return;
+    inDb = rmsDb(n.analyser);
+    if (cfg.enabled && cfg.agc && inDb > -50) {
+      const want = Math.max(-9, Math.min(9, -20 - inDb));
+      agcDb += Math.max(-0.4, Math.min(0.4, want - agcDb)); // slow ride
+    } else if (!cfg.agc) agcDb = 0;
+    n.agc.gain.setTargetAtTime(Math.pow(10, agcDb / 20), ctx.currentTime, 0.5);
+  }
+  chrome.runtime.onMessage.addListener((msg, _s, reply) => {
+    if (msg !== 'meters' || !n) return;
+    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.lim.reduction });
+  });
+
   function apply() {
     if (!n) return;
     const t = ctx.currentTime;
@@ -113,7 +165,7 @@
     const resume = () => ctx.state !== 'running' && ctx.resume();
     el.addEventListener('play', resume); resume();
     apply();
-    clearInterval(timer); timer = setInterval(adapt, 250);
+    clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); }, 250);
   }
 
   const scan = () => document.querySelectorAll('video, audio').forEach(el => { if (!el.paused || el.readyState > 0) hook(el); });

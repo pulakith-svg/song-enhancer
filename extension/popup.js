@@ -1,5 +1,6 @@
-const DEF = { enabled:true, preset:'auto', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const DEF = { enabled:true, preset:'auto', style:'broadcast', agc:true, intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
 const MODES = [['auto','Auto'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
+const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
 const HZ = ['31','62','125','250','500','1k','2k','4k','8k','16k'];
 const EQP = {
   Flat:   [0,0,0,0,0,0,0,0,0,0],
@@ -14,6 +15,7 @@ const $ = id => document.getElementById(id), save = o => chrome.storage.sync.set
 let cfg = { ...DEF };
 
 for (const [id, name] of MODES) $('modes').insertAdjacentHTML('beforeend', `<button class="chip" data-mode="${id}">${name}</button>`);
+for (const [id, name] of STY) $('styles').insertAdjacentHTML('beforeend', `<button class="chip" data-style="${id}">${name}</button>`);
 for (const name in EQP) $('eqpresets').insertAdjacentHTML('beforeend', `<button class="chip" data-eq="${name}">${name}</button>`);
 HZ.forEach((hz, i) => $('eq').insertAdjacentHTML('beforeend',
   `<div class="band"><span class="db" id="db${i}"></span><input type="range" id="b${i}" min="-12" max="12" step="0.5" aria-label="${hz} Hz"><span class="hz">${hz}</span></div>`));
@@ -25,6 +27,8 @@ function eqName() { const m = Object.entries(EQP).find(([, a]) => a.every((v, i)
 function render() {
   $('power').classList.toggle('on', cfg.enabled); document.body.classList.toggle('disabled', !cfg.enabled);
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === cfg.preset));
+  document.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === cfg.style));
+  $('agc').checked = cfg.agc;
   const en = eqName(); $('eqname').textContent = en;
   document.querySelectorAll('[data-eq]').forEach(b => b.classList.toggle('active', b.dataset.eq === en));
   cfg.eq.forEach((v, i) => { $('b' + i).value = v; $('db' + i).textContent = v ? fmt(v, '') : '0'; });
@@ -33,9 +37,29 @@ function render() {
 
 $('power').onclick = () => { cfg.enabled = !cfg.enabled; save({ enabled: cfg.enabled }); render(); };
 $('modes').onclick = e => { const m = e.target.dataset.mode; if (m) { cfg.preset = m; save({ preset: m }); render(); } };
+$('styles').onclick = e => { const s = e.target.dataset.style; if (s) { cfg.style = s; save({ style: s }); render(); } };
+$('agc').onchange = e => { cfg.agc = e.target.checked; save({ agc: cfg.agc }); };
 $('eqpresets').onclick = e => { const p = e.target.dataset.eq; if (p) { cfg.eq = [...EQP[p]]; save({ eq: cfg.eq }); render(); } };
 HZ.forEach((_, i) => $('b' + i).oninput = e => { cfg.eq[i] = +e.target.value; save({ eq: cfg.eq }); render(); });
 for (const [id] of KNOBS) $(id).oninput = e => { cfg[id] = +e.target.value; save({ [id]: cfg[id] }); render(); };
-$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset }; save(cfg); render(); };
+$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc }; save(cfg); render(); };
 
 chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); });
+
+// Live meters from the active tab
+const pct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+function meters(m) {
+  if (!m) { $('state').textContent = 'No music playing'; return; }
+  $('state').textContent = m.on ? 'Processing' : 'Bypassed';
+  $('mIn').style.width = pct(m.in) + '%'; $('tIn').textContent = m.in > -90 ? m.in.toFixed(1) + ' dB' : '—';
+  $('mOut').style.width = pct(m.out) + '%'; $('tOut').textContent = m.out > -90 ? m.out.toFixed(1) + ' dB' : '—';
+  $('mAgc').style.width = (50 + m.agc / 9 * 50) + '%'; $('tAgc').textContent = (m.agc > 0 ? '+' : '') + m.agc.toFixed(1) + ' dB';
+  [...m.gr, m.lim].forEach((v, i) => $('g' + i).style.height = Math.min(100, -v / 12 * 100) + '%');
+}
+function poll() {
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    if (!tabs[0]) return meters(null);
+    chrome.tabs.sendMessage(tabs[0].id, 'meters', r => { void chrome.runtime.lastError; meters(r); });
+  });
+}
+if (chrome.tabs) { poll(); setInterval(poll, 120); }
