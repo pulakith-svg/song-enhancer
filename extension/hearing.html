@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Hearing Test · Song Enhancer</title>
+<style>
+  :root { --bg:#0e1013; --panel:#171a1f; --line:#262a31; --fg:#e8eaed; --muted:#8a9099; --amber:#ffb347; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg); font:15px/1.5 "Segoe UI",system-ui,sans-serif; padding:24px 16px; }
+  main { width:100%; max-width:560px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:28px; }
+  h1 { margin:0 0 4px; font-size:22px; letter-spacing:.04em; } .sub { color:var(--amber); font-size:11px; letter-spacing:.2em; text-transform:uppercase; margin-bottom:18px; }
+  p { color:var(--muted); margin:0 0 14px; } ol { color:var(--muted); padding-left:20px; margin:0 0 18px; }
+  button { font:inherit; padding:10px 18px; border-radius:8px; border:1px solid var(--amber); background:var(--amber); color:#0e1013; font-weight:600; cursor:pointer; }
+  button.ghost { background:none; color:var(--muted); border-color:var(--line); font-weight:500; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .big { font-size:40px; font-weight:700; color:var(--amber); font-variant-numeric:tabular-nums; }
+  .ear { display:inline-block; padding:3px 10px; border-radius:999px; border:1px solid var(--amber); color:var(--amber); font-size:12px; letter-spacing:.1em; }
+  input[type=range] { width:100%; accent-color:var(--amber); margin:18px 0 6px; }
+  .bar { height:4px; background:var(--line); border-radius:2px; margin:18px 0; overflow:hidden; } .bar i { display:block; height:100%; background:var(--amber); width:0; transition:width .3s; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin:10px 0 18px; font-variant-numeric:tabular-nums; }
+  td, th { padding:5px 4px; border-bottom:1px solid var(--line); text-align:center; } th { color:var(--muted); font-weight:500; }
+  [hidden] { display:none !important; }
+</style></head><body><main>
+  <h1>Personal Hearing Test</h1><div class="sub">Song Enhancer · about 2 minutes</div>
+  <section id="intro">
+    <p>Everyone hears differently, especially high frequencies. This test measures each ear so the enhancer can compensate for your hearing.</p>
+    <ol>
+      <li>Use the headphones you listen with, in a quiet room.</li>
+      <li>Set your computer volume to your normal music level and leave it there.</li>
+      <li>For each tone, drag the slider <b>down</b> until you can <b>just barely</b> hear it, then press <b>Next</b>.</li>
+    </ol>
+    <p>This is a listening-comfort tool, not a medical hearing test.</p>
+    <button id="start">Start test</button>
+  </section>
+  <section id="test" hidden>
+    <div class="row" style="justify-content:space-between"><span class="ear" id="ear"></span><span id="step" style="color:var(--muted)"></span></div>
+    <div class="big" id="freq"></div>
+    <input type="range" id="lvl" min="-90" max="-10" step="1" aria-label="Tone level">
+    <div class="row" style="justify-content:space-between;color:var(--muted);font-size:12px"><span>quieter</span><span>louder</span></div>
+    <div class="bar"><i id="prog"></i></div>
+    <div class="row"><button id="next">Next — I can barely hear it</button><button class="ghost" id="none">I can't hear it at all</button></div>
+  </section>
+  <section id="done" hidden>
+    <p>Your hearing profile is saved and active. The enhancer now gently boosts the frequencies you hear less well (up to +10 dB).</p>
+    <table id="res"></table>
+    <div class="row"><button id="close">Done</button><button class="ghost" id="redo">Retake test</button></div>
+  </section>
+</main><script src="hearing.js"></script></body></html>

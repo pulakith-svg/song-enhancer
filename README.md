@@ -28,6 +28,10 @@ Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), 
 
 **Headphone correction:** search your exact headphone or earbud model (8,000+ models from the AutoEQ measurement database by oratory1990, crinacle and others) and the extension applies a parametric correction so it sounds neutral and accurate.
 
+**Personal hearing test:** a 2-minute test of each ear (8 frequencies, 250 Hz–8 kHz). The enhancer then gently compensates for the frequencies you hear less well, separately for each ear (up to +10 dB). A listening-comfort tool, not a medical test.
+
+**Equal-loudness compensation (ISO 226):** at low volume, ears lose bass and treble. The enhancer restores them automatically based on the player volume, so quiet listening still sounds full.
+
 **Volume-matched A/B:** when you turn enhancement off, the original plays at the same loudness, so you hear the real difference instead of "louder sounds better".
 
 **Shortcut:** Alt+Shift+E turns enhancement on/off (change it at chrome://extensions/shortcuts).

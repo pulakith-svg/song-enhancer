@@ -1,4 +1,4 @@
-const DEF = { v:3, enabled:true, matchAB:true, hpEq:null, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const DEF = { v:3, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
 const MODES = [['auto','Auto'],['pure','Pure'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
 const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];
@@ -30,7 +30,8 @@ function render() {
   $('power').classList.toggle('on', cfg.enabled); document.body.classList.toggle('disabled', !cfg.enabled);
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === cfg.preset));
   document.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === cfg.style));
-  $('agc').checked = cfg.agc; $('matchAB').checked = cfg.matchAB;
+  $('agc').checked = cfg.agc; $('loudComp').checked = cfg.loudComp;
+  $('hearState').textContent = cfg.hearing ? 'Active · ' + new Date(cfg.hearing.date).toLocaleDateString() : 'Not set'; $('hearOff').hidden = !cfg.hearing; $('matchAB').checked = cfg.matchAB;
   $('hpCur').hidden = !cfg.hpEq; if (cfg.hpEq) $('hpName').textContent = '✓ ' + cfg.hpEq.name;
   document.querySelectorAll('[data-device]').forEach(b => b.classList.toggle('active', b.dataset.device === cfg.device));
   const en = eqName(); $('eqname').textContent = en;
@@ -44,11 +45,14 @@ $('modes').onclick = e => { const m = e.target.dataset.mode; if (m) { cfg.preset
 $('styles').onclick = e => { const s = e.target.dataset.style; if (s) { cfg.style = s; save({ style: s }); render(); } };
 $('devices').onclick = e => { const d = e.target.dataset.device; if (d) { cfg.device = d; save({ device: d }); render(); } };
 $('matchAB').onchange = e => { cfg.matchAB = e.target.checked; save({ matchAB: cfg.matchAB }); };
+$('loudComp').onchange = e => { cfg.loudComp = e.target.checked; save({ loudComp: cfg.loudComp }); };
+$('hearTest').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('hearing.html') });
+$('hearOff').onclick = () => { cfg.hearing = null; save({ hearing: null }); render(); };
 $('agc').onchange = e => { cfg.agc = e.target.checked; save({ agc: cfg.agc }); };
 $('eqpresets').onclick = e => { const p = e.target.dataset.eq; if (p) { cfg.eq = [...EQP[p]]; save({ eq: cfg.eq }); render(); } };
 HZ.forEach((_, i) => $('b' + i).oninput = e => { cfg.eq[i] = +e.target.value; save({ eq: cfg.eq }); render(); });
 for (const [id] of KNOBS) $(id).oninput = e => { cfg[id] = +e.target.value; save({ [id]: cfg[id] }); render(); };
-$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device, hpEq: cfg.hpEq, matchAB: cfg.matchAB }; save(cfg); render(); };
+$('reset').onclick = () => { cfg = { ...DEF, eq: [...DEF.eq], enabled: cfg.enabled, preset: cfg.preset, style: cfg.style, agc: cfg.agc, device: cfg.device, hpEq: cfg.hpEq, matchAB: cfg.matchAB, hearing: cfg.hearing, loudComp: cfg.loudComp }; save(cfg); render(); };
 
 chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.eq.length !== 10) cfg.eq = [...DEF.eq]; render(); });
 
@@ -125,3 +129,5 @@ async function pickHp(name, path) {
   } catch { $('hpHint').textContent = 'No correction profile found for that entry. Try another one.'; }
 }
 $('hpClear').onclick = () => { cfg.hpEq = null; save({ hpEq: null }); $('hpHint').textContent = 'Headphone correction is off.'; render(); };
+
+chrome.storage.onChanged && chrome.storage.onChanged.addListener(ch => { if (ch.hearing) { cfg.hearing = ch.hearing.newValue; render(); } });

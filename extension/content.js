@@ -24,7 +24,7 @@
     car:        { lo:-2, lm:-1.5, hm:1.5, hi:2,  hp:35,  feed:0 },
   };
   const SETTINGS_VERSION = 3;
-  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'auto', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -90,6 +90,13 @@
     // Headphone correction (AutoEQ parametric profile): preamp + up to 10 filters
     x.hcPre = g(1); x.hc = Array.from({ length: 10 }, () => f('peaking', 1000, 1));
     x.hcPre.connect(x.hc[0]); for (let i = 0; i < 9; i++) x.hc[i].connect(x.hc[i + 1]);
+    // Personal hearing compensation: 8 bands per ear
+    x.HF = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000];
+    x.pS = c.createChannelSplitter(2); x.pM = c.createChannelMerger(2);
+    x.pEar = [0, 1].map(ch => { const fs = x.HF.map(fr => f('peaking', fr, 1.4)); for (let i = 0; i < 7; i++) fs[i].connect(fs[i + 1]);
+      x.pS.connect(fs[0], ch); fs[7].connect(x.pM, 0, ch); return fs; });
+    // Equal-loudness (ISO 226) compensation, driven by the player volume
+    x.lcLo = f('lowshelf', 110); x.lcHi = f('highshelf', 9000);
     x.boost = g(1);
     x.lim = c.createDynamicsCompressor(); x.lim.threshold.value = -1; x.lim.knee.value = 0; x.lim.ratio.value = 20; x.lim.attack.value = 0.002; x.lim.release.value = 0.25;
     x.analyser = c.createAnalyser(); x.analyser.fftSize = 4096; x.analyser.smoothingTimeConstant = 0.85;
@@ -104,7 +111,7 @@
     x.geq[x.geq.length - 1].connect(x.exHp).connect(x.exShape).connect(x.exPost).connect(x.exGain).connect(x.comp);
     x.hp.connect(x.beLp).connect(x.beShape).connect(x.beLp2).connect(x.beGain).connect(x.comp);
     x.mbOut.connect(x.makeup).connect(x.split);
-    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.hcPre); x.hc[9].connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
+    x.merge.connect(x.dHp).connect(x.dLo).connect(x.dLm).connect(x.dHm).connect(x.dHi).connect(x.hcPre); x.hc[9].connect(x.pS); x.pM.connect(x.lcLo).connect(x.lcHi).connect(x.xs); x.xm.connect(x.boost).connect(x.lim);
     x.outAn = c.createAnalyser(); x.outAn.fftSize = 2048;
     x.limOut = g(1); x.limOut.connect(c.destination); x.limOut.connect(x.outAn);
     x.lim.connect(x.clipIn); x.clipIn.connect(x.clip).connect(x.clipOut).connect(x.limOut);
@@ -141,7 +148,7 @@
     const d = DEVICES[cfg.device] || DEVICES.headphones;
     ramp(n.dHp.frequency, d.hp); ramp(n.dLo.gain, d.lo); ramp(n.dLm.gain, d.lm); ramp(n.dHm.gain, d.hm); ramp(n.dHi.gain, d.hi);
     ramp(n.fgL.gain, d.feed); ramp(n.fgR.gain, d.feed);
-    applyHp();
+    applyHp(); applyHearing();
   }
 
   // Load a headphone correction profile into the filter bank
@@ -157,6 +164,21 @@
       b.type = q.type === 'LSC' ? 'lowshelf' : q.type === 'HSC' ? 'highshelf' : 'peaking';
       b.frequency.setValueAtTime(q.fc, t); b.Q.setValueAtTime(q.q, t); b.gain.setTargetAtTime(q.gain, t, 0.1);
     });
+  }
+
+  // Hearing profile: { L:[8 dB], R:[8 dB] } boosts from the in-popup hearing test
+  function applyHearing() {
+    const h = cfg.hearing, t = ctx.currentTime, k = cfg.enabled ? 1 : 0;
+    n.pEar.forEach((fs, ch) => fs.forEach((b, i) => b.gain.setTargetAtTime(h ? (h[ch ? 'R' : 'L'][i] || 0) * k : 0, t, 0.2)));
+  }
+  // Equal-loudness: quieter listening => more bass/treble restored
+  let media = null;
+  function loudTick() {
+    if (!n) return;
+    const vol = media ? media.volume * (media.muted ? 0 : 1) : 1;
+    const q = cfg.loudComp && cfg.enabled ? Math.max(0, 1 - vol) : 0; // 0 at full volume
+    const t = ctx.currentTime;
+    n.lcLo.gain.setTargetAtTime(q * 9, t, 0.3); n.lcHi.gain.setTargetAtTime(q * 3.5, t, 0.3);
   }
 
   // Adaptive auto mode: measure the live spectrum and steer EQ toward a rich hi-fi target.
@@ -218,14 +240,14 @@
     const src = el.currentSrc || el.src || '';
     if (!src) return;
     if (!src.startsWith('blob:') && new URL(src, location.href).origin !== location.origin && !el.crossOrigin) return;
-    hooked.add(el);
+    hooked.add(el); media = el;
     ctx = ctx || new AudioContext();
     if (!n) n = build(ctx);
     try { ctx.createMediaElementSource(el).connect(n.input); } catch (e) { console.warn('Song Enhancer:', e); return; }
     const resume = () => ctx.state !== 'running' && ctx.resume();
     el.addEventListener('play', resume); resume();
     apply();
-    clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); }, 250);
+    clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); loudTick(); }, 250);
   }
 
   const scan = () => document.querySelectorAll('video, audio').forEach(el => { if (!el.paused || el.readyState > 0) hook(el); });
