@@ -69,3 +69,13 @@ function poll() {
   });
 }
 if (chrome.tabs) { poll(); setInterval(poll, 120); }
+
+// Update check: compare with the latest version published on GitHub
+const cur = chrome.runtime.getManifest ? chrome.runtime.getManifest().version : '';
+$('ver').textContent = cur;
+const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+fetch('https://raw.githubusercontent.com/pulakith-svg/song-enhancer/main/extension/manifest.json', { cache: 'no-store' })
+  .then(r => r.json()).then(m => {
+    if (cur && newer(m.version, cur)) { $('updText').textContent = `Update available: v${m.version}. Download, unzip, then click ⟳ on chrome://extensions.`; $('update').classList.add('show'); }
+  }).catch(() => {});

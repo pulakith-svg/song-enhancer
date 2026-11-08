@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Song Enhancer Hi-Fi",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Automatic hi-fi enhancement for YouTube Music and YouTube: adaptive EQ, exciter, compression, stereo width and limiter.",
   "permissions": [
     "storage"
@@ -20,7 +20,11 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Song Enhancer"
+    "default_title": "Song Enhancer",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png"
+    }
   },
   "web_accessible_resources": [
     {
@@ -32,5 +36,13 @@
         "https://www.youtube.com/*"
       ]
     }
-  ]
+  ],
+  "host_permissions": [
+    "https://raw.githubusercontent.com/pulakith-svg/song-enhancer/*"
+  ],
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
 }

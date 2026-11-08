@@ -26,4 +26,6 @@ LUFS loudness AGC (ITU-R BS.1770 K-weighted, targets −16 LUFS) → subsonic fi
 
 Processor styles: **Gentle** (transparent), **Broadcast** (dense, radio-style), **Club** (maximum punch). The popup shows live IN/OUT/AGC meters and gain reduction for each band and the limiter.
 
+**Updates:** the popup shows an "Update available" banner when a newer version is on GitHub. For fully automatic updates, publish it to the Chrome Web Store — see [PUBLISH.md](PUBLISH.md).
+
 **Spotify:** not supported. Spotify encrypts its audio (DRM), so browsers and extensions only receive silence. Use Spotify's built-in equalizer (Settings → Playback → Equalizer) or a system-wide equalizer such as Equalizer APO (Windows) or eqMac (Mac).

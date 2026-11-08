@@ -38,6 +38,9 @@
   .grbar i { position:absolute; top:0; left:0; right:0; height:0; background:#ff8a3d; transition:height .1s linear; }
   .tog { display:flex; align-items:center; justify-content:space-between; margin-top:10px; font-size:11px; color:var(--muted); }
   .tog input { accent-color:var(--amber); }
+  #update { display:none; background:#ffb3471a; border:1px solid var(--amber); color:var(--amber); border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:11px; align-items:center; justify-content:space-between; gap:8px; }
+  #update.show { display:flex; }
+  #update a { color:#0e1013; background:var(--amber); border-radius:5px; padding:4px 8px; text-decoration:none; font-weight:600; white-space:nowrap; }
   body.disabled .panel { opacity:.45; }
   button:focus-visible, input:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 </style></head><body>
@@ -45,6 +48,7 @@
     <div class="brand">SONG ENHANCER<small>HI-FI PROCESSOR</small></div>
     <button id="power" title="Turn enhancement on/off">⏻</button>
   </header>
+  <div id="update"><span id="updText"></span><a href="https://github.com/pulakith-svg/song-enhancer/archive/refs/heads/main.zip" target="_blank">Download</a></div>
   <div class="panel"><div class="title">Sound mode</div><div class="chips" id="modes"></div></div>
   <div class="panel"><div class="title">Listening on</div><div class="chips" id="devices" style="grid-template-columns:repeat(4,1fr)"></div></div>
   <div class="panel">
@@ -71,6 +75,6 @@
     <div class="eq" id="eq"></div>
   </div>
   <div class="panel"><div class="title">Processing</div><div class="knobs" id="knobs"></div></div>
-  <div class="foot"><span>YouTube Music · YouTube</span><button id="reset">Reset</button></div>
+  <div class="foot"><span>YouTube Music · YouTube · v<span id="ver"></span></span><button id="reset">Reset</button></div>
   <script src="popup.js"></script>
 </body></html>
