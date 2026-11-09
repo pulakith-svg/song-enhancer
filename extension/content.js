@@ -29,7 +29,7 @@
   const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, presets:{}, artistMap:{}, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
-  const diag = { found: 0, connected: 0, error: '', skipped: '' };
+  const diag = { found: 0, connected: 0, error: '', skipped: '', needsClick: false };
 
   function hallIR(c, secs) {
     const sr = c.sampleRate, len = Math.floor(sr * secs), ir = c.createBuffer(2, len, sr);
@@ -298,10 +298,11 @@
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     if (msg !== 'meters') return;
     if (!n || !diag.connected) {
-      reply({ status: 'waiting', found: diag.found, error: diag.error, skipped: diag.skipped, nowPlaying });
+      reply({ status: diag.needsClick ? 'needsClick' : 'waiting', found: diag.found, error: diag.error, skipped: diag.skipped, nowPlaying });
       return;
     }
     if (ctx.state !== 'running') { resume(); reply({ status: 'suspended', nowPlaying }); return; }
+    diag.needsClick = false;
     reply({ status: 'ok', on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb, genre: cfg.preset === 'smart' ? genre : null, feat, nowPlaying, version: chrome.runtime.getManifest ? chrome.runtime.getManifest().version : '' });
   });
 
@@ -314,15 +315,20 @@
     if (PRESETS[cfg.preset]) set(PRESETS[cfg.preset]); else set(cfg.preset === 'smart' ? smart : (last || auto));
   }
 
+  // SAFETY RULE: never take over a player unless the audio engine is confirmed running.
+  // Once a player is connected, its sound only comes out through our engine, so connecting
+  // while the engine is suspended would silence the music.
   function hook(el) {
     if (hooked.has(el)) return;
     const src = el.currentSrc || el.src || '';
-    if (!src) return; // not loaded yet; we retry on the next scan
-    // Cross-origin files without CORS would output silence, so leave them alone
-    if (!src.startsWith('blob:') && new URL(src, location.href).origin !== location.origin && !el.crossOrigin) { diag.skipped = 'cross-origin media'; return; }
+    if (!src) return; // not loaded yet; retried on the next scan
+    // Only same-origin or blob streams: anything else could come out silent once connected
+    if (!src.startsWith('blob:') && new URL(src, location.href).origin !== location.origin) { diag.skipped = 'cross-origin media'; return; }
+    try { ctx = ctx || new AudioContext({ latencyHint: 'playback' }); } catch (e) { diag.error = 'Audio engine unavailable: ' + e.message; return; }
+    if (ctx.state !== 'running') { diag.needsClick = true; ctx.resume().then(() => { if (ctx.state === 'running') scan(); }).catch(() => {}); return; }
+    diag.needsClick = false;
     hooked.add(el);
     try {
-      ctx = ctx || new AudioContext({ latencyHint: 'playback' });
       if (!n) n = build(ctx);
       ctx.createMediaElementSource(el).connect(n.input);
       diag.connected++; diag.error = '';
@@ -333,13 +339,16 @@
       console.warn('Song Enhancer:', e); return;
     }
     media = el;
-    el.addEventListener('play', resume); resume();
+    el.addEventListener('play', resume);
     apply();
-    clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); loudTick(); }, 250);
+    clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); loudTick(); watchdog(); }, 250);
   }
-  // The audio engine may start suspended until the page gets a click or key press
-  function resume() { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); }
+  // Keep the engine running; if the browser suspends it while music plays, wake it immediately
+  function resume() { if (ctx && ctx.state !== 'running') ctx.resume().then(() => scan()).catch(() => {}); }
   for (const ev of ['pointerdown', 'keydown', 'click']) window.addEventListener(ev, resume, true);
+  function watchdog() {
+    if (media && !media.paused && ctx.state !== 'running') { diag.needsClick = true; resume(); }
+  }
 
   // Per-artist memory: when the artist changes, load the preset saved for them
   let lastArtist = '', nowPlaying = { artist: '', title: '' };

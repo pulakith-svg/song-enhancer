@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Song Enhancer Hi-Fi",
-  "version": "3.6.0",
+  "version": "3.6.1",
   "description": "Automatic hi-fi enhancement for YouTube Music and YouTube: adaptive EQ, exciter, compression, stereo width and limiter.",
   "permissions": [
     "storage"

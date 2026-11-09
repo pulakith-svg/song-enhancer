@@ -65,6 +65,8 @@ function meters(m) {
     help.hidden = false; help.textContent = 'Open a YouTube Music or YouTube tab and reload it (F5). If you just installed or updated the extension, the tab must be reloaded once.'; return; }
   if (m.status === 'waiting') { $('state').textContent = 'Waiting for music';
     help.hidden = false; help.textContent = m.error || (m.found ? 'Player found. Press play — the enhancer connects when the song starts.' : 'No player on this page yet. Start a song.'); return; }
+  if (m.status === 'needsClick') { $('state').textContent = 'Click the page once';
+    help.hidden = false; help.textContent = 'Click anywhere on the YouTube Music page once. Chrome needs a click before the enhancer may process audio. Your music keeps playing normally until then.'; return; }
   if (m.status === 'suspended') { $('state').textContent = 'Paused by browser';
     help.hidden = false; help.textContent = 'Click anywhere on the YouTube Music page once — the browser needs a click before it allows audio processing.'; return; }
   help.hidden = true;
