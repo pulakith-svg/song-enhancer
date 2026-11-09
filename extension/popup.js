@@ -1,5 +1,5 @@
 let np = { artist: '', title: '' }, lastMeters = null; // used by meters and presets
-const DEF = { v:4, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, presets:{}, artistMap:{}, activePreset:'', preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+const DEF = { v:5, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, presets:{}, artistMap:{}, activePreset:'', preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
 const MODES = [['smart','Smart'],['auto','Auto'],['pure','Pure'],['cinema','Cinematic'],['epic','Epic'],['hifi','Hi-Fi Studio'],['bass','Bass'],['vocal','Vocal'],['warm','Warm'],['loud','Loud']];
 const DEV = [['headphones','Headphones'],['speakers','Speakers'],['laptop','Laptop'],['car','Car']];
 const STY = [['gentle','Gentle'],['broadcast','Broadcast'],['club','Club']];

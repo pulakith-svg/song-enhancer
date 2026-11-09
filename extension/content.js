@@ -3,20 +3,20 @@
   // Mode settings: EQ in dB, comp/width/exciter/bassEnh/surround in %
   const PRESETS = {
     auto:  null, // adaptive
-    cinema:{ bass:2,  lowmid:-1, mid:1,  treble:2,  comp:15, width:125, exciter:8,  bassEnh:8,  surround:0, reverb:12, sub:2 },
-    epic:  { bass:3,  lowmid:-1.5,mid:1, treble:2.5,comp:20, width:130, exciter:10, bassEnh:15, surround:0, reverb:14, sub:4.5 },
-    pure:  { bass:0,  lowmid:0,  mid:0,  treble:0,  comp:0,  width:100, exciter:0,  bassEnh:0,  surround:0 },
-    bass:  { bass:6,  lowmid:-1, mid:0,  treble:1,  comp:30, width:105, exciter:0,  bassEnh:20, surround:0 },
-    vocal: { bass:-1, lowmid:-2, mid:3.5,treble:2,  comp:30, width:100, exciter:10, bassEnh:0,  surround:0 },
-    warm:  { bass:3,  lowmid:1.5,mid:-1, treble:-2.5,comp:25, width:100, exciter:0,  bassEnh:10, surround:0 },
-    loud:  { bass:3,  lowmid:-1, mid:2,  treble:3,  comp:60, width:115, exciter:15, bassEnh:15, surround:0 },
-    hifi:  { bass:2.5,lowmid:-1, mid:1,  treble:2.5,comp:25, width:112, exciter:10, bassEnh:10, surround:0 },
+    cinema:{ bass:4,  lowmid:-1.5,mid:1.5,treble:3,  comp:15, width:130, exciter:10, bassEnh:15, surround:0, reverb:14, sub:4 },
+    epic:  { bass:6,  lowmid:-2, mid:1.5, treble:3.5,comp:20, width:135, exciter:12, bassEnh:25, surround:0, reverb:16, sub:8 },
+    pure:  { bass:0,  lowmid:0,  mid:0,   treble:0,  comp:0,  width:100, exciter:0,  bassEnh:0,  surround:0, reverb:0,  sub:0 },
+    bass:  { bass:9,  lowmid:-2, mid:0,   treble:2,  comp:25, width:110, exciter:5,  bassEnh:35, surround:0, reverb:0,  sub:7 },
+    vocal: { bass:-1, lowmid:-3, mid:5,   treble:3,  comp:30, width:100, exciter:15, bassEnh:0,  surround:0, reverb:4,  sub:0 },
+    warm:  { bass:5,  lowmid:2.5,mid:-1.5,treble:-3.5,comp:25,width:100, exciter:0,  bassEnh:15, surround:0, reverb:6,  sub:2 },
+    loud:  { bass:5,  lowmid:-2, mid:3,   treble:4.5,comp:60, width:120, exciter:20, bassEnh:25, surround:0, reverb:0,  sub:4 },
+    hifi:  { bass:5,  lowmid:-1.5,mid:1.5,treble:3.5,comp:25, width:118, exciter:12, bassEnh:20, surround:0, reverb:0,  sub:4 },
   };
   const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
   const STYLES = { // multiband compressor character
-    gentle:    { amt:0.6, atk:[0.03,0.02,0.01,0.005], rel:[0.4,0.3,0.25,0.2] },
-    broadcast: { amt:1.0, atk:[0.02,0.012,0.006,0.003], rel:[0.3,0.2,0.15,0.1] },
-    club:      { amt:1.35, atk:[0.01,0.008,0.004,0.002], rel:[0.2,0.15,0.1,0.08] },
+    gentle:    { amt:0.6, atk:[0.05,0.02,0.01,0.005], rel:[0.4,0.3,0.25,0.2] },
+    broadcast: { amt:1.0, atk:[0.04,0.012,0.006,0.003], rel:[0.35,0.2,0.15,0.1] },
+    club:      { amt:1.35, atk:[0.03,0.008,0.004,0.002], rel:[0.3,0.15,0.1,0.08] },
   };
   const XOVER = [150, 800, 5000];
   const DEVICES = { // output tuning: tilt EQ + crossfeed (headphones)
@@ -25,8 +25,8 @@
     laptop:     { lo:-4, lm:1.5,  hm:2,   hi:1,  hp:110, feed:0 },
     car:        { lo:-2, lm:-1.5, hm:1.5, hi:2,  hp:35,  feed:0 },
   };
-  const SETTINGS_VERSION = 4;
-  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:70, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
+  const SETTINGS_VERSION = 5;
+  const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, presets:{}, artistMap:{}, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
 
@@ -53,7 +53,7 @@
       for (let i = 0; i < 1024; i++) { const v = i / 511.5 - 1; cv[i] = Math.tanh(drive * v) / Math.tanh(drive); } s.curve = cv; return s; };
     x.input = g(1); x.bypass = g(0); x.wetIn = g(1);
     x.hp = f('highpass', 25, 0.7);
-    x.bass = f('lowshelf', 90); x.lowmid = f('peaking', 350, 1); x.mid = f('peaking', 2800, 0.8); x.treble = f('highshelf', 9000);
+    x.bass = f('lowshelf', 150); x.lowmid = f('peaking', 350, 1); x.mid = f('peaking', 2800, 0.8); x.treble = f('highshelf', 9000);
     // 10-band graphic EQ (user)
     x.geq = BANDS.map((fr, i) => f(i === 0 ? 'lowshelf' : i === BANDS.length - 1 ? 'highshelf' : 'peaking', fr, 1.4));
     for (let i = 0; i < x.geq.length - 1; i++) x.geq[i].connect(x.geq[i + 1]);
@@ -83,7 +83,7 @@
     }
     x.makeup = g(1);
     // Sub-bass shelf (cinematic low end)
-    x.sub = f('lowshelf', 45);
+    x.sub = f('lowshelf', 60);
     // Concert-hall reverb send: generated stereo impulse with pre-delay, early reflections and HF damping
     x.rvSend = g(0); x.rvPre = c.createDelay(0.1); x.rvPre.delayTime.value = 0.025;
     x.rvHp = f('highpass', 220, -3.0103); x.rvLp = f('lowpass', 7000, -3.0103);
@@ -159,7 +159,7 @@
     n.geq.forEach((b, i) => ramp(b.gain, (cfg.eq && cfg.eq[i]) || 0));
     const st = STYLES[cfg.style] || STYLES.broadcast;
     const c = Math.min(1.4, s.comp / 100 * k * st.amt);
-    const bandW = [1.0, 0.8, 0.9, 0.7]; // bass gets most control, highs least
+    const bandW = [0.4, 0.8, 0.9, 0.7]; // bass gets light control so it keeps its punch // bass gets most control, highs least
     n.bands.forEach((b, i) => {
       ramp(b.cmp.threshold, -Math.min(40, c * 30 * bandW[i])); ramp(b.cmp.ratio, 1 + c * 6 * bandW[i]);
       b.cmp.attack.setValueAtTime(st.atk[i], t); b.cmp.release.setValueAtTime(st.rel[i], t);
@@ -220,7 +220,7 @@
   }
 
   // Adaptive auto mode: measure the live spectrum and steer EQ toward a rich hi-fi target.
-  const auto = { bass:1, lowmid:0, mid:0.5, treble:1, comp:25, width:110, exciter:8, bassEnh:8, surround:0 };
+  const auto = { bass:4, lowmid:-1, mid:1, treble:3, comp:25, width:115, exciter:10, bassEnh:18, surround:0, reverb:0, sub:3 };
   function bandDb(spec, lo, hi) {
     const bin = ctx.sampleRate / 2 / spec.length; let s = 0, c = 0;
     for (let i = Math.floor(lo / bin); i <= Math.min(spec.length - 1, Math.ceil(hi / bin)); i++) { s += Math.pow(10, spec[i] / 10); c++; }
@@ -269,11 +269,11 @@
     // Targets slightly brighter and bassier than flat: the "hi-fi smile"
     const target = { bass: [40, 150, 11], lowmid: [250, 600, 2], mid: [2000, 3500, -5], treble: [8000, 14000, -13] };
     for (const [k, [lo, hi, tgt]] of Object.entries(target)) {
-      const want = Math.max(-3, Math.min(3.5, 0.5 + (tgt - (bandDb(spec, lo, hi) - ref)) * 0.3));
+      const want = Math.max(-2, Math.min(7, 3 + (tgt - (bandDb(spec, lo, hi) - ref)) * 0.3));
       auto[k] += (want - auto[k]) * 0.02; // slow and subtle
     }
-    auto.exciter = auto.treble > 2 ? 12 : 8;
-    auto.bassEnh = auto.bass > 2 ? 12 : 8;
+    auto.exciter = auto.treble > 4 ? 15 : 10;
+    auto.bassEnh = auto.bass > 5 ? 25 : 18;
     set(auto);
   }
 
@@ -343,7 +343,9 @@
   new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
 
   chrome.storage.sync.get(DEF, v => {
-    if (v.v !== SETTINGS_VERSION) { v = { ...DEF, eq: v.eq || DEF.eq }; chrome.storage.sync.set(v); } // reset to new gentle defaults
+    if (v.v !== SETTINGS_VERSION) { // new sound defaults; keep the user's own data
+      v = { ...DEF, eq: v.eq || DEF.eq, hpEq: v.hpEq, hearing: v.hearing, presets: v.presets || {}, artistMap: v.artistMap || {}, device: v.device || DEF.device };
+      chrome.storage.sync.set(v); }
     cfg = v; apply(); scan(); });
   chrome.storage.onChanged.addListener(ch => { for (const k in ch) cfg[k] = ch[k].newValue; apply(); });
 })();
