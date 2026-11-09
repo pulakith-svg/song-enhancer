@@ -60,7 +60,14 @@ chrome.storage.sync.get(DEF, v => { cfg = v; if (!Array.isArray(cfg.eq) || cfg.e
 // Live meters from the active tab
 const pct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
 function meters(m) {
-  if (!m) { $('state').textContent = 'No music playing'; return; }
+  const help = $('diag');
+  if (!m) { $('state').textContent = 'Not connected';
+    help.hidden = false; help.textContent = 'Open a YouTube Music or YouTube tab and reload it (F5). If you just installed or updated the extension, the tab must be reloaded once.'; return; }
+  if (m.status === 'waiting') { $('state').textContent = 'Waiting for music';
+    help.hidden = false; help.textContent = m.error || (m.found ? 'Player found. Press play — the enhancer connects when the song starts.' : 'No player on this page yet. Start a song.'); return; }
+  if (m.status === 'suspended') { $('state').textContent = 'Paused by browser';
+    help.hidden = false; help.textContent = 'Click anywhere on the YouTube Music page once — the browser needs a click before it allows audio processing.'; return; }
+  help.hidden = true;
   lastMeters = m; if (m.nowPlaying && (m.nowPlaying.artist !== np.artist || m.nowPlaying.title !== np.title)) { np = m.nowPlaying; renderPresets(); }
   $('state').textContent = m.on ? (m.genre ? 'Smart · ' + m.genre : 'Processing') : 'Bypassed';
   $('mIn').style.width = pct(m.in) + '%'; $('tIn').textContent = m.in > -90 ? m.in.toFixed(1) + ' dB' : '—';
@@ -70,10 +77,13 @@ function meters(m) {
   $('limName').textContent = m.tp ? 'TRUE-PK' : 'LIMIT';
   [...m.gr, m.lim].forEach((v, i) => $('g' + i).style.height = Math.min(100, -v / 12 * 100) + '%');
 }
+// Talk to the YouTube Music/YouTube tab: the active one if it is a music tab, otherwise an audible or any music tab
 function poll() {
-  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    if (!tabs[0]) return meters(null);
-    chrome.tabs.sendMessage(tabs[0].id, 'meters', r => { void chrome.runtime.lastError; meters(r); });
+  chrome.tabs.query({ url: ['https://music.youtube.com/*', 'https://www.youtube.com/*'] }, tabs => {
+    void chrome.runtime.lastError;
+    if (!tabs || !tabs.length) return meters(null);
+    const tab = tabs.find(t => t.active && t.audible) || tabs.find(t => t.audible) || tabs.find(t => t.active) || tabs[0];
+    chrome.tabs.sendMessage(tab.id, 'meters', r => { void chrome.runtime.lastError; meters(r); });
   });
 }
 if (chrome.tabs) { poll(); setInterval(poll, 120); }

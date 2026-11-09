@@ -29,6 +29,7 @@
   const DEF = { v:SETTINGS_VERSION, enabled:true, matchAB:true, hpEq:null, hearing:null, loudComp:true, presets:{}, artistMap:{}, preset:'smart', style:'broadcast', agc:true, device:'headphones', intensity:100, eq:[0,0,0,0,0,0,0,0,0,0], uWidth:0, uSurround:0, uBoost:0 };
   let cfg = { ...DEF };
   let ctx, n, hooked = new WeakSet(), timer, last = null;
+  const diag = { found: 0, connected: 0, error: '', skipped: '' };
 
   function hallIR(c, secs) {
     const sr = c.sampleRate, len = Math.floor(sr * secs), ir = c.createBuffer(2, len, sr);
@@ -295,8 +296,13 @@
   }
   setInterval(() => n && n.tp && n.tp.port.postMessage(0), 100);
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
-    if (msg !== 'meters' || !n) return;
-    reply({ on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb, genre: cfg.preset === 'smart' ? genre : null, feat, nowPlaying, version: chrome.runtime.getManifest ? chrome.runtime.getManifest().version : '' });
+    if (msg !== 'meters') return;
+    if (!n || !diag.connected) {
+      reply({ status: 'waiting', found: diag.found, error: diag.error, skipped: diag.skipped, nowPlaying });
+      return;
+    }
+    if (ctx.state !== 'running') { resume(); reply({ status: 'suspended', nowPlaying }); return; }
+    reply({ status: 'ok', on: cfg.enabled, in: inDb, out: rmsDb(n.outAn), agc: agcDb, gr: n.bands.map(b => b.cmp.reduction), lim: n.tp ? (n.tpRed || 0) : n.lim.reduction, tp: !!n.tp, lufs: inDb, genre: cfg.preset === 'smart' ? genre : null, feat, nowPlaying, version: chrome.runtime.getManifest ? chrome.runtime.getManifest().version : '' });
   });
 
   function apply() {
@@ -310,19 +316,30 @@
 
   function hook(el) {
     if (hooked.has(el)) return;
-    // Only hook streams we can process; cross-origin files would output silence.
     const src = el.currentSrc || el.src || '';
-    if (!src) return;
-    if (!src.startsWith('blob:') && new URL(src, location.href).origin !== location.origin && !el.crossOrigin) return;
-    hooked.add(el); media = el;
-    ctx = ctx || new AudioContext();
-    if (!n) n = build(ctx);
-    try { ctx.createMediaElementSource(el).connect(n.input); } catch (e) { console.warn('Song Enhancer:', e); return; }
-    const resume = () => ctx.state !== 'running' && ctx.resume();
+    if (!src) return; // not loaded yet; we retry on the next scan
+    // Cross-origin files without CORS would output silence, so leave them alone
+    if (!src.startsWith('blob:') && new URL(src, location.href).origin !== location.origin && !el.crossOrigin) { diag.skipped = 'cross-origin media'; return; }
+    hooked.add(el);
+    try {
+      ctx = ctx || new AudioContext({ latencyHint: 'playback' });
+      if (!n) n = build(ctx);
+      ctx.createMediaElementSource(el).connect(n.input);
+      diag.connected++; diag.error = '';
+    } catch (e) {
+      diag.error = /already connected|MediaElementSourceNode/i.test(String(e))
+        ? 'Another extension (or YouTube) is already processing this player. Turn off other audio/EQ extensions and reload the tab.'
+        : 'Could not connect: ' + (e && e.message || e);
+      console.warn('Song Enhancer:', e); return;
+    }
+    media = el;
     el.addEventListener('play', resume); resume();
     apply();
     clearInterval(timer); timer = setInterval(() => { adapt(); agcTick(); loudTick(); }, 250);
   }
+  // The audio engine may start suspended until the page gets a click or key press
+  function resume() { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); }
+  for (const ev of ['pointerdown', 'keydown', 'click']) window.addEventListener(ev, resume, true);
 
   // Per-artist memory: when the artist changes, load the preset saved for them
   let lastArtist = '', nowPlaying = { artist: '', title: '' };
@@ -338,8 +355,9 @@
     });
   }, 1000);
 
-  const scan = () => document.querySelectorAll('video, audio').forEach(el => { if (!el.paused || el.readyState > 0) hook(el); });
-  document.addEventListener('play', e => { if (e.target instanceof HTMLMediaElement) hook(e.target); }, true);
+  const scan = () => { const els = document.querySelectorAll('video, audio'); diag.found = els.length; els.forEach(hook); };
+  for (const ev of ['play', 'playing', 'loadeddata', 'canplay']) document.addEventListener(ev, e => { if (e.target instanceof HTMLMediaElement) hook(e.target); }, true);
+  setInterval(scan, 1000); // players are created and swapped dynamically
   new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
 
   chrome.storage.sync.get(DEF, v => {
